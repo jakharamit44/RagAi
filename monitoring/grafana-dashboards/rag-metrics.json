@@ -1,0 +1,25 @@
+{
+  "title": "University RAG - System Observability Dashboard",
+  "panels": [
+    {
+      "title": "API Request Rate (QPS)",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "title": "p95 Latency by Stage (Embedding, Retrieval, Rerank, TTFT)",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "title": "GPU Memory & KV Cache Occupancy",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "title": "Redis Semantic Cache Hit Rate (%)",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+    }
+  ]
+}

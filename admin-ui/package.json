@@ -1,0 +1,23 @@
+{
+  "name": "university-rag-admin-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "React Admin Dashboard with Folder Picker & Monitoring (Phase 10)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "lucide-react": "^0.441.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.11",
+    "vite": "^5.4.6"
+  }
+}

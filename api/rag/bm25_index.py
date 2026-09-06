@@ -1,0 +1,219 @@
+import os
+import re
+import sqlite3
+import logging
+from typing import List, Dict, Any, Optional
+from rank_bm25 import BM25Okapi
+
+logger = logging.getLogger(__name__)
+
+class BM25Index:
+    """
+    Sparse BM25 Okapi index for exact keyword search across university documents.
+    Reference: Phase 4 & Table 9 of technical plan.
+    """
+
+    def __init__(self):
+        import threading
+        self.corpus: List[Dict[str, Any]] = []
+        self.tokenized_corpus: List[List[str]] = []
+        self.bm25: Optional[BM25Okapi] = None
+        self._load_lock = threading.Lock()
+
+    @staticmethod
+    def tokenize(text: str) -> List[str]:
+        return [w for w in re.split(r"\W+", text.lower()) if len(w) > 1]
+
+    def reload_from_db(self):
+        """Forces complete reload of BM25 corpus from SQLite."""
+        with self._load_lock:
+            self.bm25 = None
+            self.corpus = []
+            self.tokenized_corpus = []
+        self.ensure_loaded()
+
+    def ensure_loaded(self):
+        """Auto-loads index from sqlite if not yet initialized in memory."""
+
+        db_path = os.path.abspath("university_rag.db")
+        if not os.path.exists(db_path):
+            return
+
+        try:
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(id) FROM chunks")
+            db_count = cur.fetchone()[0]
+            conn.close()
+        except Exception:
+            db_count = -1
+
+        if self.bm25 and self.corpus and getattr(self, "_last_chunk_count", -1) == db_count:
+            return
+
+        with self._load_lock:
+            if self.bm25 and self.corpus and getattr(self, "_last_chunk_count", -1) == db_count:
+                return
+
+        if not os.path.exists(db_path):
+            return
+
+        try:
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT c.id, c.document_id, c.page_number, c.section, c.text,
+                       d.title, d.department, d.semester, d.course
+                FROM chunks c
+                JOIN documents d ON c.document_id = d.id
+            """)
+            rows = cur.fetchall()
+            conn.close()
+
+            chunks = []
+            for r in rows:
+                chunks.append({
+                    "chunk_id": str(r[0]),
+                    "document_id": str(r[1]),
+                    "page_number": r[2],
+                    "section": r[3],
+                    "text": r[4],
+                    "title": r[5],
+                    "department": r[6],
+                    "semester": r[7],
+                    "course": r[8],
+                })
+            if chunks:
+                self.build_index(chunks)
+        except Exception as e:
+            logger.warning(f"Could not auto-load BM25 corpus from SQLite: {e}")
+
+    def build_index(self, chunks: List[Dict[str, Any]]):
+        """Build BM25 index from list of chunk payloads, including title & section for rich lexical matching."""
+        self.corpus = chunks
+        self.tokenized_corpus = [
+            self.tokenize(f"{c.get('title', '')} {c.get('section', '')} {c.get('text', '')}")
+            for c in chunks
+        ]
+        if self.tokenized_corpus:
+            self.bm25 = BM25Okapi(self.tokenized_corpus)
+            self._last_chunk_count = len(self.corpus)
+            logger.info(f"Built BM25 index over {len(self.corpus)} chunks.")
+        else:
+            self.bm25 = None
+            self._last_chunk_count = 0
+
+    def search_sparse(
+        self,
+        query: str,
+        limit: int = 20,
+        department: Optional[str] = None,
+        course: Optional[str] = None,
+        semester: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        self.ensure_loaded()
+
+        if not self.bm25 or not self.corpus:
+            return []
+
+        from .query_utils import (
+            extract_ordinal,
+            extract_ordinals,
+            extract_entity,
+            get_conflicting_ordinals,
+            get_conflicting_entities,
+            ORDINAL_EXPANSIONS,
+        )
+
+        tokens = self.tokenize(query)
+        if not tokens:
+            return []
+
+        expanded_tokens = list(tokens)
+        for t in tokens:
+            if t in ORDINAL_EXPANSIONS:
+                for exp in ORDINAL_EXPANSIONS[t]:
+                    if exp not in expanded_tokens:
+                        expanded_tokens.append(exp)
+
+        scores = self.bm25.get_scores(expanded_tokens)
+        results = []
+
+        q_ords = extract_ordinals(query)
+        q_ent = extract_entity(query)
+        ord_conflicts = get_conflicting_ordinals(q_ords) if q_ords else set()
+        ent_conflicts = get_conflicting_entities(q_ent) if q_ent else set()
+
+        # Extract specific alphanumeric identifiers (e.g., CS401, 23GEOD102DS02, 22DPIR12C2)
+        q_codes = [
+            re.sub(r"[\s\-_]", "", w).lower()
+            for w in re.findall(r"\b[A-Za-z0-9\-_]{4,20}\b", query)
+            if any(c.isdigit() for c in w) and any(c.isalpha() for c in w)
+        ]
+
+        target_exps = set()
+        if q_ords:
+            for k, v in ORDINAL_EXPANSIONS.items():
+                from .query_utils import CANONICAL_ORDINAL_MAP
+                if CANONICAL_ORDINAL_MAP.get(k) in q_ords:
+                    target_exps.update(v)
+
+        for idx, score in enumerate(scores):
+            doc = self.corpus[idx]
+
+            # Metadata scope filter
+            if department and doc.get("department") != department:
+                continue
+            if course and doc.get("course") != course:
+                continue
+            if semester and doc.get("semester") != semester:
+                continue
+
+            doc_title = (doc.get("title") or "").lower()
+            doc_text = (doc.get("text") or "").lower()
+            adjusted_score = float(score)
+
+            # Course/Paper code boost (highest priority for academic advising and specific courses)
+            if q_codes:
+                clean_doc_target = re.sub(r"[\s\-_]", "", f"{doc_title} {doc.get('course', '')} {doc_text[:1200]}").lower()
+                for qc in q_codes:
+                    if qc in clean_doc_target:
+                        adjusted_score += 15.0
+
+            # Ordinal alignment: Title has highest authority
+            if q_ords:
+                title_matches_ord = any(re.search(rf"\b{re.escape(exp)}\b", doc_title) for exp in target_exps)
+                title_has_ord_conflict = any(re.search(rf"\b{re.escape(co)}\b", doc_title) for co in ord_conflicts)
+                text_matches_ord = any(re.search(rf"\b{re.escape(exp)}\b", doc_text[:400]) for exp in target_exps)
+
+                if title_matches_ord:
+                    adjusted_score += 10.0
+                elif title_has_ord_conflict:
+                    adjusted_score -= 20.0
+                elif text_matches_ord:
+                    adjusted_score += 3.0
+
+            # Entity alignment: Title has highest authority
+            if q_ent:
+                title_matches_ent = q_ent in doc_title
+                title_has_ent_conflict = any(ce in doc_title for ce in ent_conflicts)
+                text_matches_ent = q_ent in doc_text[:400]
+
+                if title_matches_ent:
+                    adjusted_score += 8.0
+                elif title_has_ent_conflict:
+                    adjusted_score -= 20.0
+                elif text_matches_ent:
+                    adjusted_score += 2.0
+
+            if adjusted_score <= 0.0:
+                continue
+
+            item = dict(doc)
+            item["score"] = adjusted_score
+            results.append(item)
+
+        results.sort(key=lambda x: x["score"], reverse=True)
+        return results[:limit]
+
+bm25_index = BM25Index()

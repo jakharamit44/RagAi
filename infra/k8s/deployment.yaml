@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: university-rag-api
+  namespace: university-rag
+  labels:
+    app: university-rag-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: university-rag-api
+  template:
+    metadata:
+      labels:
+        app: university-rag-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+        - name: api
+          image: university-rag-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: university-rag-config
+            - secretRef:
+                name: university-rag-secrets
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: university-rag-worker
+  namespace: university-rag
+  labels:
+    app: university-rag-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: university-rag-worker
+  template:
+    metadata:
+      labels:
+        app: university-rag-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: worker
+          image: university-rag-api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["celery", "-A", "workers.celery_app", "worker", "--loglevel=info", "-c", "10"]
+          envFrom:
+            - configMapRef:
+                name: university-rag-config
+            - secretRef:
+                name: university-rag-secrets
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"

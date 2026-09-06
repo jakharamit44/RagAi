@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: university-rag-config
+  namespace: university-rag
+data:
+  VECTOR_STORE_HOST: "qdrant.university-rag.svc.cluster.local"
+  VECTOR_STORE_PORT: "6333"
+  VECTOR_COLLECTION_NAME: "university_corpus"
+  REDIS_URL: "redis://redis.university-rag.svc.cluster.local:6379/0"
+  CELERY_BROKER_URL: "redis://redis.university-rag.svc.cluster.local:6379/1"
+  CELERY_RESULT_BACKEND: "redis://redis.university-rag.svc.cluster.local:6379/1"
+  TOP_K_RETRIEVE: "20"
+  TOP_K_FINAL: "5"
+  RATE_LIMIT_PER_STUDENT_PER_MINUTE: "20"
+  RATE_LIMIT_PER_IP_PER_MINUTE: "60"

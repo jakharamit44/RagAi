@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>University Academic Assistant - Student Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- KaTeX for Academic LaTeX Math (Phase 16) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .chat-table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.82rem; }
+    .chat-table th, .chat-table td { border: 1px solid #cbd5e1; padding: 6px 10px; text-align: left; }
+    .chat-table th { background-color: #f1f5f9; font-weight: 600; color: #1e293b; }
+    .chat-table tr:nth-child(even) { background-color: #f8fafc; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen flex flex-col justify-between antialiased">
+  <!-- Top Bar -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+    <div class="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
+          🎓
+        </div>
+        <div>
+          <h1 class="text-sm font-bold text-slate-900 leading-tight">University Academic Assistant</h1>
+          <p class="text-xs text-slate-500">Verified citations from syllabus & lecture notes</p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-2">
+        <select id="dept-select" class="text-xs bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="" selected>All Departments</option>
+        </select>
+        <select id="course-select" class="text-xs bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="" selected>All Courses / Documents</option>
+        </select>
+        <a href="/admin" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold px-2 py-1">Admin Dashboard</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Chat Scroll Area -->
+  <main class="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 overflow-y-auto space-y-6" id="chat-messages">
+    <!-- Welcome Bot Message -->
+    <div class="flex items-start space-x-3">
+      <div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shrink-0">
+        AI
+      </div>
+      <div class="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200 max-w-2xl">
+        <p class="text-sm text-slate-800 leading-relaxed">
+          Hello! I am your University Academic Assistant. Ask me anything about your course lectures, syllabus, lab assignments, or policies. Every answer is grounded directly in verified material.
+        </p>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button onclick="fillPrompt('What is an AVL tree and how does it balance?')" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium px-2.5 py-1.5 rounded-full border border-indigo-200 transition">
+            🌲 What is an AVL tree?
+          </button>
+          <button onclick="fillPrompt('When are the instructor office hours?')" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium px-2.5 py-1.5 rounded-full border border-indigo-200 transition">
+            🕒 When are office hours?
+          </button>
+          <button onclick="fillPrompt('Five design principles behind every phase')" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium px-2.5 py-1.5 rounded-full border border-indigo-200 transition">
+            📜 5 Design principles
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Input Area -->
+  <footer class="bg-white border-t border-slate-200 sticky bottom-0 p-4">
+    <div class="max-w-4xl mx-auto">
+      <form id="chat-form" class="flex space-x-3">
+        <input type="text" id="user-input" placeholder="Ask a question from your course documents..." autocomplete="off" required
+          class="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white shadow-inner">
+        <button type="submit" id="btn-send" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-3 rounded-xl text-sm shadow transition flex items-center space-x-2">
+          <span>Ask</span>
+          <span>→</span>
+        </button>
+      </form>
+    </div>
+  </footer>
+
+  <script>
+    const messagesContainer = document.getElementById('chat-messages');
+    const chatForm = document.getElementById('chat-form');
+    const userInput = document.getElementById('user-input');
+    const deptSelect = document.getElementById('dept-select');
+    const courseSelect = document.getElementById('course-select');
+    const btnSend = document.getElementById('btn-send');
+
+    async function loadScopes() {
+      try {
+        const res = await fetch('/api/v1/documents?page_size=100');
+        if (res.ok) {
+          const data = await res.json();
+          const items = data.items || [];
+          const depts = new Set();
+          const courses = new Set();
+          items.forEach(d => {
+            if (d.department) depts.add(d.department);
+            if (d.course) courses.add(d.course);
+          });
+          depts.forEach(dept => {
+            const opt = document.createElement('option');
+            opt.value = dept;
+            opt.textContent = `Dept: ${dept}`;
+            deptSelect.appendChild(opt);
+          });
+          courses.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c;
+            opt.textContent = `Course: ${c}`;
+            courseSelect.appendChild(opt);
+          });
+        }
+      } catch (e) {
+        console.warn('Could not load scopes:', e);
+      }
+    }
+    loadScopes();
+
+    function fillPrompt(text) {
+      userInput.value = text;
+      userInput.focus();
+    }
+
+    function formatContent(raw) {
+      if (!raw) return '';
+      // Format markdown tables into HTML tables
+      const lines = raw.split('\n');
+      let inTable = false;
+      let tableHtml = '<table class="chat-table">';
+      let outputLines = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.startsWith('|') && line.endsWith('|')) {
+          if (!inTable) {
+            inTable = true;
+            tableHtml = '<table class="chat-table">';
+            const cells = line.split('|').slice(1, -1).map(c => c.trim());
+            tableHtml += '<thead><tr>' + cells.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+          } else if (line.includes('---')) {
+            continue;
+          } else {
+            const cells = line.split('|').slice(1, -1).map(c => c.trim());
+            tableHtml += '<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>';
+          }
+        } else {
+          if (inTable) {
+            inTable = false;
+            tableHtml += '</tbody></table>';
+            outputLines.push(tableHtml);
+          }
+          outputLines.push(line);
+        }
+      }
+      if (inTable) {
+        tableHtml += '</tbody></table>';
+        outputLines.push(tableHtml);
+      }
+      return outputLines.join('<br>');
+    }
+
+    function renderCitations(citations) {
+      if (!citations || citations.length === 0) return '';
+      return `
+        <div class="mt-4 pt-3 border-t border-slate-100">
+          <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">📑 Verified Source Citations</p>
+          <div class="space-y-2">
+            ${citations.map(c => `
+              <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-xs">
+                <div class="flex justify-between items-center font-semibold text-indigo-900">
+                  <span>📄 ${c.title}</span>
+                  <span class="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded text-[10px]">p. ${c.page_number || '1'}</span>
+                </div>
+                ${c.section ? `<p class="text-[11px] text-slate-500 font-medium mt-0.5">Section: ${c.section}</p>` : ''}
+                <p class="text-slate-600 mt-1 italic line-clamp-2">"${c.snippet}"</p>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function appendMessage(role, text, citations = [], servedBy = 'local') {
+      const msgDiv = document.createElement('div');
+      msgDiv.className = `flex items-start space-x-3 ${role === 'user' ? 'justify-end' : ''}`;
+
+      if (role === 'user') {
+        msgDiv.innerHTML = `
+          <div class="bg-indigo-600 text-white p-4 rounded-2xl rounded-tr-none shadow-sm max-w-xl text-sm">
+            ${text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}
+          </div>
+          <div class="w-8 h-8 rounded-full bg-slate-400 text-white flex items-center justify-center font-bold text-sm shrink-0">
+            You
+          </div>
+        `;
+      } else {
+        const citationsHtml = renderCitations(citations);
+        const badgeHtml = servedBy === 'cache'
+          ? `<span class="inline-flex items-center text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full mt-2">⚡ Cached Hit (< 1ms)</span>`
+          : `<span class="inline-flex items-center text-[10px] bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded-full mt-2">🖥️ Local Inference</span>`;
+
+        const formattedHtml = formatContent(text);
+
+        msgDiv.innerHTML = `
+          <div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shrink-0">
+            AI
+          </div>
+          <div class="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200 max-w-2xl text-sm">
+            <div class="text-slate-800 leading-relaxed font-normal">${formattedHtml}</div>
+            <div class="flex items-center justify-between mt-1">
+              ${badgeHtml}
+            </div>
+            ${citationsHtml}
+          </div>
+        `;
+      }
+
+      messagesContainer.appendChild(msgDiv);
+      if (window.renderMathInElement) {
+        try {
+          renderMathInElement(msgDiv, {
+            delimiters: [
+              {left: '$$', right: '$$', display: true},
+              {left: '$', right: '$', display: false},
+              {left: '\\[', right: '\\]', display: true},
+              {left: '\\(', right: '\\)', display: false}
+            ],
+            throwOnError: false
+          });
+        } catch (e) {
+          console.warn('KaTeX render error:', e);
+        }
+      }
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    chatForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const question = userInput.value.trim();
+      if (!question) return;
+
+      const course = courseSelect.value || null;
+      const department = deptSelect.value || null;
+      appendMessage('user', question);
+      userInput.value = '';
+      btnSend.disabled = true;
+
+      // Loading bubble
+      const loadingDiv = document.createElement('div');
+      loadingDiv.id = 'loading-bubble';
+      loadingDiv.className = 'flex items-start space-x-3';
+      loadingDiv.innerHTML = `
+        <div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shrink-0">AI</div>
+        <div class="bg-white p-3 rounded-2xl rounded-tl-none shadow-sm border border-slate-200 text-xs text-slate-500 flex items-center space-x-2">
+          <div class="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
+          <span>Retrieving verified course citations...</span>
+        </div>
+      `;
+      messagesContainer.appendChild(loadingDiv);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+      try {
+        const res = await fetch('/api/v1/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question, course, department, stream: true })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          document.getElementById('loading-bubble')?.remove();
+          appendMessage('assistant', `⚠️ Error: ${errData.error?.message || errData.detail || 'Failed to get answer'}`);
+          return;
+        }
+
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('text/event-stream')) {
+          const data = await res.json();
+          document.getElementById('loading-bubble')?.remove();
+          appendMessage('assistant', data.answer, data.citations, data.served_by);
+          return;
+        }
+
+        // Live SSE Streaming Message Bubble
+        document.getElementById('loading-bubble')?.remove();
+
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'flex items-start space-x-3';
+        msgDiv.innerHTML = `
+          <div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shrink-0">AI</div>
+          <div class="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200 max-w-2xl text-sm">
+            <div id="stream-text" class="text-slate-800 leading-relaxed font-normal"></div>
+            <div id="stream-badge" class="flex items-center justify-between mt-1"></div>
+            <div id="stream-citations"></div>
+          </div>
+        `;
+        messagesContainer.appendChild(msgDiv);
+
+        const textElem = msgDiv.querySelector('#stream-text');
+        const badgeElem = msgDiv.querySelector('#stream-badge');
+        const citationsElem = msgDiv.querySelector('#stream-citations');
+
+        let accumulatedAnswer = '';
+        let citations = [];
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() || '';
+
+          for (const part of parts) {
+            const line = part.trim();
+            if (line.startsWith('data: ')) {
+              try {
+                const eventData = JSON.parse(line.slice(6));
+                if (eventData.type === 'metadata') {
+                  const isCache = eventData.served_by === 'cache';
+                  badgeElem.innerHTML = isCache
+                    ? `<span class="inline-flex items-center text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full mt-2">⚡ Cached Hit (< 1ms)</span>`
+                    : `<span class="inline-flex items-center text-[10px] bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded-full mt-2">🖥️ Local Inference</span>`;
+                } else if (eventData.type === 'citations') {
+                  citations = eventData.citations || [];
+                  citationsElem.innerHTML = renderCitations(citations);
+                } else if (eventData.type === 'token') {
+                  accumulatedAnswer += eventData.delta;
+                  textElem.innerHTML = formatContent(accumulatedAnswer);
+                  messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                } else if (eventData.type === 'done') {
+                  if (window.renderMathInElement) {
+                    try {
+                      renderMathInElement(msgDiv, {
+                        delimiters: [
+                          {left: '$$', right: '$$', display: true},
+                          {left: '$', right: '$', display: false},
+                          {left: '\\[', right: '\\]', display: true},
+                          {left: '\\(', right: '\\)', display: false}
+                        ],
+                        throwOnError: false
+                      });
+                    } catch (e) {}
+                  }
+                }
+              } catch (parseErr) {
+                console.warn('SSE Parse error:', parseErr);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        document.getElementById('loading-bubble')?.remove();
+        appendMessage('assistant', `⚠️ Network error: ${err.message}`);
+      } finally {
+        btnSend.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

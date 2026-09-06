@@ -1,0 +1,147 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: university_rag_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - rag-api
+    networks:
+      - rag-network
+
+  rag-api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: university_rag_api
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://rag_user:rag_secret_password@postgres:5432/university_rag
+      - VECTOR_STORE_HOST=qdrant
+      - VECTOR_STORE_PORT=6333
+      - VECTOR_COLLECTION_NAME=university_corpus
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - JWT_SIGNING_KEY=prod-secret-jwt-signing-key-university-rag-32bytes-long
+      - API_KEY=prod-secret-service-key-2026
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_started
+    volumes:
+      - doc_storage:/app/data
+    networks:
+      - rag-network
+
+  rag-worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: university_rag_worker
+    restart: unless-stopped
+    command: ["celery", "-A", "workers.celery_app", "worker", "--loglevel=info", "-c", "10"]
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://rag_user:rag_secret_password@postgres:5432/university_rag
+      - VECTOR_STORE_HOST=qdrant
+      - VECTOR_STORE_PORT=6333
+      - VECTOR_COLLECTION_NAME=university_corpus
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - doc_storage:/app/data
+    networks:
+      - rag-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: university_rag_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rag_user
+      POSTGRES_PASSWORD: rag_secret_password
+      POSTGRES_DB: university_rag
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag_user -d university_rag"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag-network
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: university_rag_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - rag-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: university_rag_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - rag-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: university_rag_prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+    networks:
+      - rag-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: university_rag_grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - rag-network
+
+networks:
+  rag-network:
+    driver: bridge
+
+volumes:
+  pg_data:
+  qdrant_data:
+  redis_data:
+  grafana_data:
+  doc_storage:

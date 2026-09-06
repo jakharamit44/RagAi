@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+.venv/
+ENV/
+
+# Environment variables
+.env.local
+
+# Models & Heavy Checkpoints (>8 GB)
+models/
+models/**
+
+# Data directory & Documents
+data/
+data/**
+
+# Database & cache
+*.db
+*.sqlite3
+*.rdb
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Node / UI
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.next/
+out/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporary & logs
+*.log
+logs/
+tmp/
+temp/
+scratch/
