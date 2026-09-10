@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     .chat-table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.82rem; }
@@ -164,25 +165,122 @@
       return outputLines.join('<br>');
     }
 
+    let activeCitationsMap = {};
+    let citationCounter = 0;
+
     function renderCitations(citations) {
       if (!citations || citations.length === 0) return '';
       return `
         <div class="mt-4 pt-3 border-t border-slate-100">
-          <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">📑 Verified Source Citations</p>
+          <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center">
+            <i class="fa-solid fa-file-shield text-indigo-600 mr-1.5"></i> Verified Source Citations
+          </p>
           <div class="space-y-2">
-            ${citations.map(c => `
-              <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-xs">
-                <div class="flex justify-between items-center font-semibold text-indigo-900">
-                  <span>📄 ${c.title}</span>
-                  <span class="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded text-[10px]">p. ${c.page_number || '1'}</span>
+            ${citations.map((c, i) => {
+              const citId = 'cit_' + (++citationCounter);
+              activeCitationsMap[citId] = c;
+              return `
+                <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-xs hover:border-indigo-300 transition">
+                  <div class="flex justify-between items-center font-semibold text-indigo-900">
+                    <span class="truncate max-w-[280px]" title="${c.title}">📄 ${c.title}</span>
+                    <div class="flex items-center space-x-1.5 shrink-0">
+                      <span class="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded text-[10px] font-mono">p. ${c.page_number || '1'}</span>
+                      <button type="button" onclick="openSourcePreview('${citId}')" class="text-[10px] bg-white hover:bg-indigo-50 text-indigo-600 font-semibold px-2 py-0.5 rounded border border-indigo-200 transition flex items-center">
+                        <i class="fa-solid fa-magnifying-glass mr-1"></i> Preview
+                      </button>
+                    </div>
+                  </div>
+                  ${c.section ? `<p class="text-[11px] text-slate-500 font-medium mt-0.5">Section: ${c.section}</p>` : ''}
+                  <p class="text-slate-600 mt-1 italic line-clamp-2">"${c.snippet}"</p>
                 </div>
-                ${c.section ? `<p class="text-[11px] text-slate-500 font-medium mt-0.5">Section: ${c.section}</p>` : ''}
-                <p class="text-slate-600 mt-1 italic line-clamp-2">"${c.snippet}"</p>
-              </div>
-            `).join('')}
+              `;
+            }).join('')}
           </div>
         </div>
       `;
+    }
+
+    // Generative UI: Dynamic Component Synthesis for Student Chat
+    function renderGenerativeUICards(text) {
+      if (!text) return '';
+      const lower = text.toLowerCase();
+      let cardsHtml = '';
+
+      // 1. Interactive Timetable & Examination Schedule Card
+      const hasDatesheetIntent = (lower.includes('exam') || lower.includes('datesheet') || lower.includes('mathematics') || lower.includes('schedule')) && (lower.includes('202') || lower.includes('semester') || lower.includes('held') || lower.includes('june'));
+      if (hasDatesheetIntent) {
+        cardsHtml += `
+          <div class="my-3 p-3.5 bg-gradient-to-br from-indigo-50 via-white to-purple-50 rounded-xl border border-indigo-200 shadow-sm text-xs">
+            <div class="flex justify-between items-center pb-2 border-b border-indigo-100 mb-2">
+              <span class="font-bold text-indigo-900 flex items-center">
+                <i class="fa-regular fa-calendar-check mr-1.5 text-indigo-600 text-sm"></i> Interactive Examination Schedule Card
+              </span>
+              <button type="button" onclick="copyScheduleText(this)" class="text-[11px] bg-white hover:bg-indigo-50 text-indigo-700 font-semibold px-2.5 py-1 rounded border border-indigo-200 transition flex items-center shadow-xs">
+                <i class="fa-regular fa-copy mr-1"></i> Copy Schedule
+              </button>
+            </div>
+            <div class="flex items-center space-x-2 text-[11px] text-slate-600 mb-2">
+              <span class="px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded font-semibold">Semester Schedule</span>
+              <span>Always verify roll number slip & admit card for exam center allocation.</span>
+            </div>
+          </div>
+        `;
+      }
+
+      // 2. Official University Admissions Status Card
+      const hasAdmissionIntent = lower.includes('admission') || lower.includes('prospectus') || lower.includes('eligibility') || lower.includes('application form');
+      if (hasAdmissionIntent) {
+        cardsHtml += `
+          <div class="my-3 p-3.5 bg-gradient-to-br from-emerald-50 via-white to-teal-50 rounded-xl border border-emerald-200 shadow-sm text-xs">
+            <div class="flex justify-between items-center pb-2 border-b border-emerald-100 mb-2">
+              <span class="font-bold text-emerald-950 flex items-center">
+                <i class="fa-solid fa-graduation-cap mr-1.5 text-emerald-600 text-sm"></i> Official MDU Admissions Portal
+              </span>
+              <span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                ● Verified Guidelines
+              </span>
+            </div>
+            <p class="text-slate-600 mb-2.5">
+              Review eligibility criteria, program codes, and submission deadlines verified directly from the MDU Prospectus.
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <a href="https://www.mdu.ac.in" target="_blank" rel="noopener noreferrer"
+                 class="inline-flex items-center px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition shadow-sm">
+                <i class="fa-solid fa-arrow-up-right-from-square mr-1.5 text-[10px]"></i> Open MDU Official Portal
+              </a>
+              <a href="https://mdu.ac.in/Admissions" target="_blank" rel="noopener noreferrer"
+                 class="inline-flex items-center px-3 py-1.5 rounded-lg bg-white hover:bg-emerald-50 text-emerald-800 font-semibold text-xs border border-emerald-300 transition">
+                <i class="fa-solid fa-book-open mr-1.5 text-[10px]"></i> Online Registration
+              </a>
+            </div>
+          </div>
+        `;
+      }
+
+      return cardsHtml;
+    }
+
+    function openSourcePreview(citId) {
+      const c = activeCitationsMap[citId];
+      if (!c) return;
+      document.getElementById('preview-doc-title').textContent = c.title || 'Verified Document';
+      document.getElementById('preview-doc-page').textContent = 'Page ' + (c.page_number || '1');
+      document.getElementById('preview-doc-section').textContent = c.section ? 'Section: ' + c.section : '';
+      document.getElementById('preview-doc-text').textContent = c.snippet || 'No text snippet available.';
+      document.getElementById('source-preview-modal').classList.remove('hidden');
+    }
+
+    function closeSourcePreview() {
+      document.getElementById('source-preview-modal').classList.add('hidden');
+    }
+
+    function copyScheduleText(btn) {
+      const card = btn.closest('.my-3');
+      const text = card ? card.innerText : 'Examination schedule';
+      navigator.clipboard.writeText(text);
+      const oldHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fa-solid fa-check mr-1 text-emerald-600"></i> Copied!';
+      setTimeout(() => { btn.innerHTML = oldHtml; }, 2000);
     }
 
     function appendMessage(role, text, citations = [], servedBy = 'local') {
@@ -200,9 +298,10 @@
         `;
       } else {
         const citationsHtml = renderCitations(citations);
+        const cardsHtml = renderGenerativeUICards(text);
         const badgeHtml = servedBy === 'cache'
           ? `<span class="inline-flex items-center text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full mt-2">⚡ Cached Hit (< 1ms)</span>`
-          : `<span class="inline-flex items-center text-[10px] bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded-full mt-2">🖥️ Local Inference</span>`;
+          : `<span class="inline-flex items-center text-[10px] bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded-full mt-2">🖥️ Local Inference (RTX 3060)</span>`;
 
         const formattedHtml = formatContent(text);
 
@@ -211,6 +310,7 @@
             AI
           </div>
           <div class="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200 max-w-2xl text-sm">
+            ${cardsHtml}
             <div class="text-slate-800 leading-relaxed font-normal">${formattedHtml}</div>
             <div class="flex items-center justify-between mt-1">
               ${badgeHtml}
@@ -338,6 +438,12 @@
                   textElem.innerHTML = formatContent(accumulatedAnswer);
                   messagesContainer.scrollTop = messagesContainer.scrollHeight;
                 } else if (eventData.type === 'done') {
+                  const cardsHtml = renderGenerativeUICards(accumulatedAnswer);
+                  if (cardsHtml) {
+                    const cardsBox = document.createElement('div');
+                    cardsBox.innerHTML = cardsHtml;
+                    textElem.before(cardsBox);
+                  }
                   if (window.renderMathInElement) {
                     try {
                       renderMathInElement(msgDiv, {
@@ -366,5 +472,32 @@
       }
     });
   </script>
+
+  <!-- MODAL: DOCUMENT SOURCE PREVIEW (Generative UI) -->
+  <div id="source-preview-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-xl w-full shadow-2xl p-6 space-y-4 max-h-[85vh] flex flex-col">
+      <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+        <div class="truncate mr-3">
+          <span class="text-[10px] text-indigo-600 font-bold uppercase tracking-wider block">Verified Academic Source Document</span>
+          <h3 id="preview-doc-title" class="font-bold text-slate-900 text-sm truncate">Document Reference</h3>
+        </div>
+        <button onclick="closeSourcePreview()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+      </div>
+
+      <div class="flex items-center space-x-2 text-xs text-slate-500">
+        <span id="preview-doc-page" class="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-bold font-mono">Page 1</span>
+        <span id="preview-doc-section" class="text-slate-600 font-medium"></span>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 leading-relaxed font-serif whitespace-pre-wrap max-h-[50vh]" id="preview-doc-text">
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+        <button onclick="closeSourcePreview()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold transition">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

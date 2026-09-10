@@ -154,6 +154,8 @@ class QueryAuditLog(Base):
     served_by = Column(String(50), nullable=False)           # local / hosted / fallback / cache
     latency_ms = Column(Float, nullable=False)
     tokens_used = Column(Integer, default=0, nullable=False)
+    crag_decision = Column(String(30), nullable=True)
+    confidence = Column(Float, nullable=True)
 
 
 class ApiKey(Base):
@@ -220,4 +222,82 @@ class SecurityIncident(Base):
     endpoint = Column(String(255), nullable=True)
     detail = Column(Text, nullable=True)
     action_taken = Column(String(50), default="BLOCKED", nullable=False)  # BLOCKED, RATE_LIMITED, FLAGGED, LOGGED
+
+
+class PromptOptimizationRun(Base):
+    """
+    Tracks autonomous self-improvement optimization runs (Karpathy loop).
+    Records baseline scores, mutations applied, validation outcomes, and rollback states.
+    """
+    __tablename__ = "prompt_optimization_runs"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True, nullable=False)
+    baseline_score = Column(Float, nullable=False)
+    new_score = Column(Float, nullable=False)
+    mutation_strategy = Column(String(50), nullable=False)  # add_constraint, add_example, refine_rule
+    mutation_applied = Column(Text, nullable=False)
+    status = Column(String(30), nullable=False)            # ACCEPTED / ROLLED_BACK
+    diagnostics = Column(Text, nullable=True)
+
+
+class WebScrapeJob(Base):
+    """
+    Configuration and tracking for automated web scraping and delta ingestion jobs.
+    """
+    __tablename__ = "web_scrape_jobs"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    name = Column(String(150), nullable=False, default="MDU Main Scraper")
+    base_url = Column(Text, nullable=False, default="https://mdu.ac.in")
+    seed_urls = Column(Text, nullable=False, default='["https://mdu.ac.in/default.aspx"]')  # JSON list
+    allowed_domains = Column(Text, nullable=False, default="mdu.ac.in")
+    url_patterns = Column(Text, nullable=True)  # Comma-separated or regex
+    max_depth = Column(Integer, default=3, nullable=False)
+    max_pages = Column(Integer, default=500, nullable=False)
+    crawl_interval_minutes = Column(Integer, default=360, nullable=False)  # Every 6 hours
+    auto_ingest = Column(Boolean, default=True, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    status = Column(String(50), default="idle", nullable=False)  # idle / running / paused / completed / failed
+    last_run_at = Column(DateTime, nullable=True)
+    next_run_at = Column(DateTime, nullable=True)
+    stats = Column(Text, nullable=True)  # JSON summary of last crawl
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    manifest_entries = relationship("WebScrapeManifest", back_populates="job", cascade="all, delete-orphan")
+
+
+class WebScrapeManifest(Base):
+    """
+    Tracks all crawled URLs, documents, headers (ETag, Last-Modified), SHA-256 hashes,
+    and ingestion statuses for continuous delta change detection.
+    """
+    __tablename__ = "web_scrape_manifest"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    job_id = Column(GUID(), ForeignKey("web_scrape_jobs.id", ondelete="CASCADE"), nullable=True)
+    url = Column(Text, nullable=False, index=True)
+    url_hash = Column(String(64), unique=True, nullable=False, index=True)  # SHA-256 of normalized URL
+    content_type = Column(String(100), default="text/html", nullable=False)
+    etag = Column(String(255), nullable=True)
+    last_modified_header = Column(String(255), nullable=True)
+    content_hash = Column(String(64), nullable=True, index=True)  # SHA-256 of content
+    http_status = Column(Integer, nullable=True)
+    title = Column(Text, nullable=True)
+    local_file_path = Column(Text, nullable=True)
+    document_id = Column(GUID(), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
+    status = Column(String(50), default="discovered", nullable=False, index=True)  # discovered, downloaded, ingested, skipped_unchanged, failed
+    error_message = Column(Text, nullable=True)
+    last_checked_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    last_changed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    job = relationship("WebScrapeJob", back_populates="manifest_entries")
+    document = relationship("Document")
+
+    __table_args__ = (
+        Index("ix_manifest_job_status", "job_id", "status"),
+        Index("ix_manifest_url_hash", "url_hash"),
+    )
+
+
 

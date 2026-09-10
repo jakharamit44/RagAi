@@ -1,5 +1,6 @@
 import os
 import uuid
+import asyncio
 import logging
 from typing import Optional, List, Dict, Any, Union
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, status, Query
@@ -398,9 +399,13 @@ async def upload_document(
 
     safe_filename = os.path.basename(file.filename) if file.filename else f"upload_{uuid.uuid4().hex[:8]}.txt"
     dest_path = os.path.join(upload_dir, safe_filename)
-    with open(dest_path, "wb") as f:
-        while chunk := await file.read(65536):
-            f.write(chunk)
+
+    def _write_file():
+        with open(dest_path, "wb") as f:
+            while chunk := file.file.read(65536):
+                f.write(chunk)
+
+    await asyncio.to_thread(_write_file)
 
     doc_id = str(uuid.uuid4())
 

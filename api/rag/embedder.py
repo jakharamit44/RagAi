@@ -33,25 +33,25 @@ class LocalEmbedder:
                     from api.core.config import settings
                     from sentence_transformers import SentenceTransformer
 
-                    device = "cuda" if torch.cuda.is_available() else "cpu"
+                    embedder_device = getattr(settings, "EMBEDDER_DEVICE", "cpu")
                     token = settings.HF_TOKEN or os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
                     model_target = self.model_name or settings.resolved_embedding_model
 
                     # 1. Primary path: Load directly from local project folder (100% offline, zero network)
                     if os.path.exists(model_target):
-                        logger.info(f"Loading SentenceTransformer from local project folder: {model_target} on {device}")
-                        self._st_model = SentenceTransformer(model_target, device=device)
-                        logger.info(f"Loaded SentenceTransformer successfully from project folder: {model_target}")
+                        logger.info(f"Loading SentenceTransformer from local project folder: {model_target} on {embedder_device}")
+                        self._st_model = SentenceTransformer(model_target, device=embedder_device)
+                        logger.info(f"Loaded SentenceTransformer successfully from project folder: {model_target} on {embedder_device}")
                     else:
                         # 2. Local cache fallback
                         try:
-                            self._st_model = SentenceTransformer(model_target, local_files_only=True, device=device)
-                            logger.info(f"Loaded SentenceTransformer from local cache (offline mode) on {device}: {model_target}")
+                            self._st_model = SentenceTransformer(model_target, local_files_only=True, device=embedder_device)
+                            logger.info(f"Loaded SentenceTransformer from local cache (offline mode) on {embedder_device}: {model_target}")
                         except Exception as offline_err:
                             # 3. Fallback: Download once from Hugging Face Hub if not present
                             logger.info(f"Model not found in local cache ({offline_err}). Downloading once from Hugging Face Hub...")
-                            self._st_model = SentenceTransformer(model_target, token=token, device=device)
-                            logger.info(f"Downloaded and cached SentenceTransformer: {model_target}")
+                            self._st_model = SentenceTransformer(model_target, token=token, device=embedder_device)
+                            logger.info(f"Downloaded and cached SentenceTransformer: {model_target} on {embedder_device}")
                 except Exception as e:
                     logger.info(f"SentenceTransformers not loaded ({e}). Using local high-dimensional vectorizer.")
                     self._st_model = None
@@ -62,9 +62,7 @@ class LocalEmbedder:
         m = self._get_st_model()
         if m:
             try:
-                from api.core.gpu_lock import gpu_lock
-                with gpu_lock:
-                    _ = m.encode(["academic query warmup"], normalize_embeddings=True)
+                _ = m.encode(["academic query warmup"], normalize_embeddings=True)
                 logger.info("Embedder model warmed up successfully.")
             except Exception as e:
                 logger.warning(f"Embedder warmup note: {e}")
@@ -103,12 +101,18 @@ class LocalEmbedder:
         if model:
             try:
                 import torch
-                from api.core.gpu_lock import gpu_lock
-                with gpu_lock:
+                # If model is on CUDA, acquire gpu_lock; if on CPU, run directly with zero lock contention!
+                is_cuda = hasattr(model, "device") and getattr(model.device, "type", "") == "cuda"
+                if is_cuda:
+                    from api.core.gpu_lock import gpu_lock
+                    with gpu_lock:
+                        with torch.inference_mode():
+                            embeddings = model.encode(texts, normalize_embeddings=True)
+                        if torch.cuda.is_available():
+                            torch.cuda.synchronize()
+                else:
                     with torch.inference_mode():
                         embeddings = model.encode(texts, normalize_embeddings=True)
-                    if torch.cuda.is_available():
-                        torch.cuda.synchronize()
                 return [e.tolist() for e in embeddings]
             except Exception as e:
                 logger.warning(f"Embedding inference failed: {e}. Falling back to hash vectorizer.")

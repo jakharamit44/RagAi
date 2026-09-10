@@ -1,7 +1,7 @@
 import re
 import asyncio
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from api.core.config import settings
 from .embedder import embedder
 from .qdrant_store import qdrant_store
@@ -31,6 +31,8 @@ class HybridRetriever:
         department: Optional[str] = None,
         course: Optional[str] = None,
         semester: Optional[str] = None,
+        depth: int = 0,
+        query_vector: Optional[List[float]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Execute parallel hybrid search with relevance thresholds:
@@ -44,17 +46,16 @@ class HybridRetriever:
 
         async def _run_dense() -> List[Dict[str, Any]]:
             try:
-                query_vec = await asyncio.to_thread(embedder.embed_query, query)
+                vec = query_vector if (query_vector is not None and depth == 0) else await asyncio.to_thread(embedder.embed_query, query)
                 raw_dense = await asyncio.to_thread(
-
                     qdrant_store.search_dense,
-                    query_vector=query_vec,
+                    query_vector=vec,
                     limit=self.top_k_retrieve,
                     department=department,
                     course=course,
                     semester=semester,
                 )
-                valid_doc_ids = {d.get("document_id") for d in bm25_index.corpus if d.get("document_id")}
+                valid_doc_ids = bm25_index.valid_doc_ids
                 filtered_dense = []
                 for r in raw_dense:
                     doc_id = r.get("document_id")
@@ -207,6 +208,59 @@ class HybridRetriever:
 
             candidates.sort(key=lambda c: (extract_year(c), c.get("rerank_score", 0.0)), reverse=True)
 
-        return candidates[:self.top_k_final]
+        final_chunks = candidates[:self.top_k_final]
+
+        # 8. Corrective RAG (CRAG) Evaluation Gate
+        from .crag import crag_evaluator, CRAGDecision
+        eval_result = crag_evaluator.evaluate_retrieval(query, final_chunks)
+
+        # If CRAG grades chunks as INCORRECT, abstain early by suppressing irrelevant chunks
+        if eval_result.decision == CRAGDecision.INCORRECT:
+            logger.info(f"CRAG: Abstention gate triggered for query '{query[:40]}...'. Zero irrelevant chunks returned.")
+            return []
+
+        # If CRAG grades AMBIGUOUS and depth == 0, perform sub-query decomposition
+        if eval_result.decision == CRAGDecision.AMBIGUOUS and eval_result.sub_queries and depth == 0:
+            logger.info(f"CRAG: Expanding ambiguous query via sub-queries: {eval_result.sub_queries}")
+            sub_chunks = []
+            sub_queries = eval_result.sub_queries[:2]
+            if sub_queries:
+                sub_results = await asyncio.gather(
+                    *[self.retrieve(sq, department, course, semester, depth=1) for sq in sub_queries],
+                    return_exceptions=True
+                )
+                for res in sub_results:
+                    if isinstance(res, list):
+                        sub_chunks.extend(res)
+                    elif isinstance(res, Exception):
+                        logger.warning(f"CRAG sub-query retrieval error: {res}")
+
+            if sub_chunks:
+                # Deduplicate by chunk_id
+                seen_cids = {c.get("chunk_id") for c in final_chunks}
+                for sc in sub_chunks:
+                    cid = sc.get("chunk_id")
+                    if cid and cid not in seen_cids:
+                        final_chunks.append(sc)
+                        seen_cids.add(cid)
+
+        return final_chunks[:self.top_k_final]
+
+    async def retrieve_with_crag(
+        self,
+        query: str,
+        department: Optional[str] = None,
+        course: Optional[str] = None,
+        semester: Optional[str] = None,
+        query_vector: Optional[List[float]] = None,
+    ) -> Tuple[List[Dict[str, Any]], Any]:
+        """
+        Executes hybrid retrieval and returns both the final chunks and the CRAG diagnostic object.
+        """
+        from .crag import crag_evaluator
+        chunks = await self.retrieve(query, department, course, semester, query_vector=query_vector)
+        eval_result = crag_evaluator.evaluate_retrieval(query, chunks)
+        return chunks, eval_result
 
 retriever = HybridRetriever()
+

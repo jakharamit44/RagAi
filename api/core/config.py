@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     HOSTED_API_KEY: Optional[str] = Field(default=None, description="Hosted provider API key")
     HOSTED_API_MODEL: Optional[str] = Field(default=None, description="Hosted model name")
     GPU_AUTODETECT: bool = Field(default=True, description="Autodetect CUDA/GPU availability")
+    ENABLE_4BIT_QUANTIZATION: bool = Field(default=True, description="Enable BitsAndBytes 4-bit NF4 quantization for local LLM to reduce VRAM footprint to ~1.8GB")
+    EMBEDDER_DEVICE: str = Field(default="cpu", description="Execution device for embedding model ('cpu' for zero GPU lock contention)")
 
     # Embedding & Reranking Models (Phase 3, 4)
     HF_TOKEN: Optional[str] = Field(default=None, description="Hugging Face API Token for fast model downloads")
@@ -60,7 +62,7 @@ class Settings(BaseSettings):
     # Retrieval & Generation (Phase 4, 5)
     TOP_K_RETRIEVE: int = Field(default=20, description="Initial hybrid candidate count")
     TOP_K_FINAL: int = Field(default=5, description="Final context chunk count for LLM")
-    MAX_NEW_TOKENS: int = Field(default=768, description="Maximum tokens generated per LLM response")
+    MAX_NEW_TOKENS: int = Field(default=384, description="Maximum tokens generated per LLM response")
 
     # Caching, Rate Limits & Abuse Prevention (Phase 7, 19)
     CACHE_TTL_VOLATILE_SECONDS: int = Field(default=3600, description="Fast-changing cache TTL")

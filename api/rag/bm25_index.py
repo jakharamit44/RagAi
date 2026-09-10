@@ -18,7 +18,14 @@ class BM25Index:
         self.corpus: List[Dict[str, Any]] = []
         self.tokenized_corpus: List[List[str]] = []
         self.bm25: Optional[BM25Okapi] = None
+        self._valid_doc_ids: set = set()
         self._load_lock = threading.Lock()
+
+    @property
+    def valid_doc_ids(self) -> set:
+        if not self._valid_doc_ids and self.corpus:
+            self._valid_doc_ids = {d.get("document_id") for d in self.corpus if d.get("document_id")}
+        return self._valid_doc_ids
 
     @staticmethod
     def tokenize(text: str) -> List[str]:
@@ -30,67 +37,58 @@ class BM25Index:
             self.bm25 = None
             self.corpus = []
             self.tokenized_corpus = []
+            self._valid_doc_ids = set()
         self.ensure_loaded()
 
     def ensure_loaded(self):
-        """Auto-loads index from sqlite if not yet initialized in memory."""
-
-        db_path = os.path.abspath("university_rag.db")
-        if not os.path.exists(db_path):
-            return
-
-        try:
-            conn = sqlite3.connect(db_path)
-            cur = conn.cursor()
-            cur.execute("SELECT COUNT(id) FROM chunks")
-            db_count = cur.fetchone()[0]
-            conn.close()
-        except Exception:
-            db_count = -1
-
-        if self.bm25 and self.corpus and getattr(self, "_last_chunk_count", -1) == db_count:
+        """Auto-loads index from sqlite if not yet initialized in memory (zero disk I/O when already loaded)."""
+        if self.bm25 is not None and self.corpus:
             return
 
         with self._load_lock:
-            if self.bm25 and self.corpus and getattr(self, "_last_chunk_count", -1) == db_count:
+            if self.bm25 is not None and self.corpus:
                 return
 
-        if not os.path.exists(db_path):
-            return
+            db_path = os.path.abspath("university_rag.db")
+            if not os.path.exists(db_path):
+                return
 
-        try:
-            conn = sqlite3.connect(db_path)
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT c.id, c.document_id, c.page_number, c.section, c.text,
-                       d.title, d.department, d.semester, d.course
-                FROM chunks c
-                JOIN documents d ON c.document_id = d.id
-            """)
-            rows = cur.fetchall()
-            conn.close()
+            try:
+                conn = sqlite3.connect(db_path, timeout=10.0)
+                conn.execute("PRAGMA journal_mode=WAL;")
+                conn.execute("PRAGMA synchronous=NORMAL;")
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT c.id, c.document_id, c.page_number, c.section, c.text,
+                           d.title, d.department, d.semester, d.course
+                    FROM chunks c
+                    JOIN documents d ON c.document_id = d.id
+                """)
+                rows = cur.fetchall()
+                conn.close()
 
-            chunks = []
-            for r in rows:
-                chunks.append({
-                    "chunk_id": str(r[0]),
-                    "document_id": str(r[1]),
-                    "page_number": r[2],
-                    "section": r[3],
-                    "text": r[4],
-                    "title": r[5],
-                    "department": r[6],
-                    "semester": r[7],
-                    "course": r[8],
-                })
-            if chunks:
-                self.build_index(chunks)
-        except Exception as e:
-            logger.warning(f"Could not auto-load BM25 corpus from SQLite: {e}")
+                chunks = []
+                for r in rows:
+                    chunks.append({
+                        "chunk_id": str(r[0]),
+                        "document_id": str(r[1]),
+                        "page_number": r[2],
+                        "section": r[3],
+                        "text": r[4],
+                        "title": r[5],
+                        "department": r[6],
+                        "semester": r[7],
+                        "course": r[8],
+                    })
+                if chunks:
+                    self.build_index(chunks)
+            except Exception as e:
+                logger.warning(f"Could not auto-load BM25 corpus from SQLite: {e}")
 
     def build_index(self, chunks: List[Dict[str, Any]]):
         """Build BM25 index from list of chunk payloads, including title & section for rich lexical matching."""
         self.corpus = chunks
+        self._valid_doc_ids = {d.get("document_id") for d in chunks if d.get("document_id")}
         self.tokenized_corpus = [
             self.tokenize(f"{c.get('title', '')} {c.get('section', '')} {c.get('text', '')}")
             for c in chunks
@@ -153,10 +151,13 @@ class BM25Index:
 
         target_exps = set()
         if q_ords:
+            from .query_utils import CANONICAL_ORDINAL_MAP
             for k, v in ORDINAL_EXPANSIONS.items():
-                from .query_utils import CANONICAL_ORDINAL_MAP
                 if CANONICAL_ORDINAL_MAP.get(k) in q_ords:
                     target_exps.update(v)
+
+        target_regexes = [re.compile(rf"\b{re.escape(exp)}\b") for exp in target_exps] if target_exps else []
+        ord_conflict_regexes = [re.compile(rf"\b{re.escape(co)}\b") for co in ord_conflicts] if ord_conflicts else []
 
         for idx, score in enumerate(scores):
             doc = self.corpus[idx]
@@ -182,9 +183,9 @@ class BM25Index:
 
             # Ordinal alignment: Title has highest authority
             if q_ords:
-                title_matches_ord = any(re.search(rf"\b{re.escape(exp)}\b", doc_title) for exp in target_exps)
-                title_has_ord_conflict = any(re.search(rf"\b{re.escape(co)}\b", doc_title) for co in ord_conflicts)
-                text_matches_ord = any(re.search(rf"\b{re.escape(exp)}\b", doc_text[:400]) for exp in target_exps)
+                title_matches_ord = any(rx.search(doc_title) for rx in target_regexes)
+                title_has_ord_conflict = any(rx.search(doc_title) for rx in ord_conflict_regexes)
+                text_matches_ord = any(rx.search(doc_text[:400]) for rx in target_regexes)
 
                 if title_matches_ord:
                     adjusted_score += 10.0

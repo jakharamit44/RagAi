@@ -154,7 +154,7 @@ class LocalReranker:
             overlap_count = sum(1 for qw in query_words if qw in text or qw in doc_title)
             base_score = c.get("rrf_score", c.get("score", 0.0))
             bonus = 0.0
-            if q_ord:
+            if q_ords:
                 if any(rgx.search(doc_title) for rgx in target_regexes):
                     bonus += 5.0
                 elif any(rgx.search(doc_title) for rgx in conflict_regexes):

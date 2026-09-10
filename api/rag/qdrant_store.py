@@ -54,7 +54,7 @@ class QdrantStore:
             if not exists:
                 self.client.create_collection(
                     collection_name=self.collection_name,
-                    vectors_config=VectorParams(size=384, distance=Distance.COSINE),
+                    vectors_config=VectorParams(size=384, distance=Distance.COSINE, on_disk=True),
                 )
                 logger.info(f"Created Qdrant collection: {self.collection_name}")
         except Exception as e:

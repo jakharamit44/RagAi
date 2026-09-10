@@ -11,6 +11,19 @@ ABSTENTION_MESSAGE = (
     "Please refer to your faculty or syllabus."
 )
 
+ABSTENTION_MESSAGE_HINDI = (
+    "मेरे पास इस प्रश्न का उत्तर देने के लिए पर्याप्त सत्यापित विश्वविद्यालय सामग्री उपलब्ध नहीं है। "
+    "कृपया अपने संबंधित विभाग, संकाय (Faculty) या सिलेबस का संदर्भ लें।"
+)
+
+def get_abstention_message(question: Optional[str] = None) -> str:
+    """Returns language-adapted abstention message (Hindi/Hinglish vs English)."""
+    if question:
+        from api.core.conversational import is_hindi_or_hinglish
+        if is_hindi_or_hinglish(question):
+            return ABSTENTION_MESSAGE_HINDI
+    return ABSTENTION_MESSAGE
+
 class LLMRouter:
     """
     Local-first LLM router with untrusted context fencing and explicit abstention.
@@ -209,7 +222,8 @@ class LLMRouter:
         """Streams grounded RAG tokens using local GPU engine with fallback."""
         if not chunks:
             import asyncio
-            for word in ABSTENTION_MESSAGE.split(" "):
+            abstention_text = get_abstention_message(question)
+            for word in abstention_text.split(" "):
                 yield word + " "
                 await asyncio.sleep(0.01)
             return
@@ -246,7 +260,7 @@ class LLMRouter:
         """
         if not chunks:
             return {
-                "answer": ABSTENTION_MESSAGE,
+                "answer": get_abstention_message(question),
                 "served_by": "local",
                 "abstained": True,
             }
@@ -268,12 +282,13 @@ class LLMRouter:
             f"2. TEMPORAL & RECENCY AWARENESS: Today's date is {cur_date_str}. Use this date to evaluate current academic status, upcoming vs past events, and prioritize the latest extension notices and circulars.\n"
             "3. If the user greets you, expresses gratitude, or asks who you are, respond naturally and politely as the "
             "official AI Academic Assistant developed for Maharshi Dayanand University (MDU), Rohtak.\n"
-            "4. If an academic question cannot be found in the context, explicitly state: "
-            f"'{ABSTENTION_MESSAGE}'\n"
+            "4. If an academic question cannot be found in the context, explicitly state polite abstention: "
+            f"English: '{ABSTENTION_MESSAGE}' | Hindi / Hinglish: '{ABSTENTION_MESSAGE_HINDI}'\n"
             "5. State facts clearly without bracketed source links.\n"
             "6. Never mention internal software development plans, requirements planning, document ingestion pipelines, administrative dashboards, or technical code to the user. You are an academic assistant communicating with university students.\n"
             "7. When asked about university admissions, summarize the verified guidelines, programs, submission deadlines, and official portal (www.mdu.ac.in) found in the documents.\n"
-            "8. Provide a complete, fully formed answer. Always finish your thoughts, sentences, and lists cleanly without cutting off abruptly."
+            "8. LANGUAGE ADAPTATION: Always match the language or dialect used by the student. If the user asks in Hindi (Devanagari), answer in fluent, polite Hindi. If the user asks in Hinglish (Roman Hindi, like 'exam kab hai', 'admission kaise karein'), reply in natural, polite Hinglish or Hindi. If in English, reply in English.\n"
+            "9. Provide a complete, fully formed answer. Always finish your thoughts, sentences, and lists cleanly without cutting off abruptly."
         )
 
         messages = [
@@ -288,7 +303,7 @@ class LLMRouter:
                 ans = await chat_generator.generate_rag_answer(question=question, chunks=chunks, temperature=temperature)
                 if ans and ans.strip():
                     ans = clean_rag_answer(ans)
-                    is_abstained = (ABSTENTION_MESSAGE.lower() in ans.lower())
+                    is_abstained = (ABSTENTION_MESSAGE.lower() in ans.lower() or ABSTENTION_MESSAGE_HINDI.lower() in ans.lower())
                     return {
                         "answer": ans,
                         "served_by": "local",

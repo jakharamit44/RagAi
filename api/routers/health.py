@@ -183,6 +183,7 @@ async def readiness_probe():
     return JSONResponse(status_code=status_code, content=payload)
 
 @router.get("/health", response_model=HealthResponse)
+@router.get("/api/v1/health", response_model=HealthResponse)
 async def health_check():
     """Liveness & readiness health probe verifying DB, Vector Store, LLM, and GPU."""
     db_ok = True

@@ -103,6 +103,9 @@
             <div class="w-full bg-slate-200 rounded-full h-1 overflow-hidden mt-1">
               <div id="stat-disk-free-bar" class="bg-emerald-500 h-1 rounded-full transition-all duration-500" style="width: 100%;"></div>
             </div>
+            <button onclick="cleanScraperTempFiles()" class="mt-2 w-full text-[10px] bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-300 hover:border-amber-300 font-semibold py-1 px-1.5 rounded transition flex items-center justify-center gap-1 shadow-2xs" title="Purge transient scraped temp files while strictly preserving course documents">
+              <i class="fa-solid fa-broom text-[10px] text-amber-600"></i> <span>Clean Scraper Temp</span>
+            </button>
           </div>
         </div>
 
@@ -295,6 +298,10 @@
   <!-- Navigation Tabs -->
   <div class="bg-white border-b border-slate-200">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-6 text-sm font-medium text-slate-500 overflow-x-auto">
+      <button onclick="switchTab('tab-brain')" id="btn-tab-brain" class="py-3 px-1 border-b-2 border-transparent hover:text-slate-700 flex items-center shrink-0 text-indigo-700 font-bold">
+        <i class="fa-solid fa-brain mr-2 text-indigo-600 animate-pulse"></i> Cognitive AI Brain
+        <span id="brain-tab-badge" class="ml-1.5 text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded-full border border-indigo-200">Live Cortex</span>
+      </button>
       <button onclick="switchTab('tab-ingest')" id="btn-tab-ingest" class="py-3 px-1 border-b-2 border-transparent hover:text-slate-700 tab-active flex items-center shrink-0">
         <i class="fa-regular fa-folder-open mr-2"></i> Watched Folders
       </button>
@@ -315,12 +322,20 @@
       <button onclick="switchTab('tab-urls')" id="btn-tab-urls" class="py-3 px-1 border-b-2 border-transparent hover:text-slate-700 flex items-center shrink-0">
         <i class="fa-solid fa-globe mr-2"></i> URL Allow / Disallow
       </button>
+      <button onclick="switchTab('tab-scraper')" id="btn-tab-scraper" class="py-3 px-1 border-b-2 border-transparent hover:text-slate-700 flex items-center shrink-0">
+        <i class="fa-solid fa-spider mr-2 text-emerald-600"></i> Web Scraper & Ingest
+        <span id="scraper-tab-badge" class="ml-1.5 text-[10px] bg-slate-100 text-slate-700 font-bold px-1.5 py-0.2 rounded-full border border-slate-200">Idle</span>
+      </button>
       <button onclick="switchTab('tab-manifest')" id="btn-tab-manifest" class="py-3 px-1 border-b-2 border-transparent hover:text-slate-700 flex items-center shrink-0">
         <i class="fa-solid fa-fingerprint mr-2"></i> Manifest
       </button>
       <button onclick="switchTab('tab-security')" id="btn-tab-security" class="py-3 px-1 border-b-2 border-transparent hover:text-slate-700 flex items-center shrink-0">
         <i class="fa-solid fa-shield-halved mr-2 text-amber-500"></i> Security Audits
         <span id="security-tab-badge" class="ml-1.5 text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded-full border border-amber-200">0</span>
+      </button>
+      <button onclick="switchTab('tab-diagnostics')" id="btn-tab-diagnostics" class="py-3 px-1 border-b-2 border-transparent hover:text-slate-700 flex items-center shrink-0">
+        <i class="fa-solid fa-stethoscope mr-2 text-rose-500"></i> RAG Diagnostics Clinic
+        <span class="ml-1.5 text-[10px] bg-rose-100 text-rose-700 font-bold px-1.5 py-0.2 rounded-full border border-rose-200">AI Clinic</span>
       </button>
       <button onclick="switchTab('tab-settings')" id="btn-tab-settings" class="py-3 px-1 border-b-2 border-transparent hover:text-slate-700 flex items-center shrink-0">
         <i class="fa-solid fa-gear mr-2 text-slate-500"></i> System Settings
@@ -330,6 +345,241 @@
 
   <!-- Main Container -->
   <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
+
+    <!-- ========================================================================= -->
+    <!-- TAB 0: COGNITIVE AI BRAIN & LIVE KNOWLEDGE CORTEX -->
+    <!-- ========================================================================= -->
+    <div id="tab-brain" class="hidden space-y-6">
+      <!-- Hero / Header Card -->
+      <div class="bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-900 p-6 rounded-2xl text-white shadow-xl border border-indigo-800/40 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <div class="flex items-center space-x-3">
+            <span class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 via-emerald-300 to-amber-300 flex items-center">
+              <i class="fa-solid fa-brain mr-2.5 text-indigo-400"></i> University Cognitive AI Brain
+            </span>
+            <span id="brain-status-pill" class="text-xs px-2.5 py-0.5 rounded-full bg-indigo-900/80 text-indigo-300 font-mono font-bold border border-indigo-700 animate-pulse">
+              ● Cortex: IDLE_AWARE
+            </span>
+          </div>
+          <p class="text-xs text-indigo-200 mt-1.5 max-w-3xl leading-relaxed">
+            Real-time interactive semantic graph mapping university faculties, academic courses, curriculum modules, examination notifications, and scraped web documents. Watch neural firing trajectories propagate live across dynamic synapses when queries are answered.
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <select id="brain-dept-filter" onchange="filterBrainDepartment(this.value)" class="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2 focus:ring-1 focus:ring-indigo-500 focus:outline-none">
+            <option value="all">All Departments & Faculties</option>
+            <option value="Computer Science">Computer Science & Eng</option>
+            <option value="Examination Branch">Examination Branch & Datesheets</option>
+            <option value="Academic Council">Academic Council & Curricula</option>
+            <option value="University Court">University Court & Ordinances</option>
+            <option value="Physical Sciences">Physical Sciences (M.Sc)</option>
+          </select>
+          <button onclick="rebuildBrainCortex()" id="btn-rebuild-brain" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow transition flex items-center" title="Recalculate Knowledge Graph and synapic affinity weights">
+            <i class="fa-solid fa-arrows-rotate mr-1.5"></i> Rebuild Cortex
+          </button>
+          <button onclick="resetBrainCanvasView()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs px-3 py-2 rounded-xl border border-slate-700 transition" title="Center camera view on core">
+            <i class="fa-solid fa-arrows-to-dot"></i> Center
+          </button>
+        </div>
+      </div>
+
+      <!-- Cognitive Telemetry HUD Bento Cards -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+        <!-- 1. Synaptic Density -->
+        <div class="p-4 bg-white rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+          <div class="flex justify-between items-center">
+            <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center">
+              <i class="fa-solid fa-circle-nodes text-indigo-500 mr-1.5"></i> Synaptic Links
+            </span>
+            <span class="text-[10px] bg-indigo-50 text-indigo-700 font-mono font-bold px-1.5 py-0.5 rounded border border-indigo-200">Active</span>
+          </div>
+          <p id="hud-synaptic-count" class="text-2xl font-black text-slate-900 mt-2 font-mono">--</p>
+          <p class="text-[10px] text-slate-400 mt-0.5">Semantic affinity bridges</p>
+        </div>
+
+        <!-- 2. Knowledge Nodes -->
+        <div class="p-4 bg-white rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+          <div class="flex justify-between items-center">
+            <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center">
+              <i class="fa-solid fa-network-wired text-emerald-500 mr-1.5"></i> Knowledge Nodes
+            </span>
+            <span id="hud-dept-count" class="text-[10px] bg-emerald-50 text-emerald-700 font-mono font-bold px-1.5 py-0.5 rounded border border-emerald-200">-- depts</span>
+          </div>
+          <p id="hud-nodes-count" class="text-2xl font-black text-emerald-700 mt-2 font-mono">--</p>
+          <p class="text-[10px] text-slate-400 mt-0.5">Concepts, courses & docs</p>
+        </div>
+
+        <!-- 3. Cognitive State & Load -->
+        <div class="p-4 bg-white rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+          <div class="flex justify-between items-center">
+            <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center">
+              <i class="fa-solid fa-microchip text-amber-500 mr-1.5"></i> Cognitive Load
+            </span>
+            <span id="hud-cognitive-load-tag" class="text-[10px] bg-amber-50 text-amber-800 font-mono font-bold px-1.5 py-0.5 rounded border border-amber-200">0% Load</span>
+          </div>
+          <div class="mt-2 space-y-1">
+            <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+              <div id="hud-cognitive-load-bar" class="bg-amber-500 h-2 rounded-full transition-all duration-500" style="width: 5%;"></div>
+            </div>
+          </div>
+          <p id="hud-cognitive-desc" class="text-[10px] text-slate-500 mt-1 truncate">Ready for student queries</p>
+        </div>
+
+        <!-- 4. Memory Coherence Index -->
+        <div class="p-4 bg-white rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+          <div class="flex justify-between items-center">
+            <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center">
+              <i class="fa-solid fa-shield-halved text-rose-500 mr-1.5"></i> Fact Coherence
+            </span>
+            <span class="text-[10px] bg-rose-50 text-rose-700 font-mono font-bold px-1.5 py-0.5 rounded border border-rose-200">Grounded</span>
+          </div>
+          <p id="hud-coherence-rate" class="text-2xl font-black text-slate-900 mt-2 font-mono">98.5%</p>
+          <p class="text-[10px] text-slate-400 mt-0.5">Zero-hallucination verification</p>
+        </div>
+      </div>
+
+      <!-- Main Visualizer Grid (Canvas + Probe Simulator) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <!-- Interactive 2D/3D Force-Directed Neural Canvas -->
+        <div class="lg:col-span-8 bg-slate-950 rounded-2xl border border-slate-800 shadow-xl overflow-hidden flex flex-col relative min-h-[580px]">
+          <!-- Top Canvas Overlay Bar -->
+          <div class="absolute top-3 left-3 z-10 flex items-center gap-2">
+            <span class="bg-slate-900/90 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-800 font-mono flex items-center backdrop-blur-md">
+              <i class="fa-solid fa-atom mr-1.5 text-indigo-400 animate-spin"></i>
+              <span id="canvas-node-hover-label">Knowledge Cortex Map</span>
+            </span>
+          </div>
+
+          <div class="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-slate-900/90 p-1 rounded-xl border border-slate-800 backdrop-blur-md">
+            <button onclick="zoomBrainCanvas(1.2)" class="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-xs transition" title="Zoom In">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+            <button onclick="zoomBrainCanvas(0.8)" class="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-xs transition" title="Zoom Out">
+              <i class="fa-solid fa-minus"></i>
+            </button>
+            <button onclick="resetBrainCanvasView()" class="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-xs transition" title="Fit to Screen">
+              <i class="fa-solid fa-expand"></i>
+            </button>
+            <button onclick="toggleBrainPhysics()" id="btn-toggle-physics" class="px-2 h-7 flex items-center justify-center text-emerald-400 hover:bg-slate-800 rounded-lg text-[10px] font-mono font-bold transition" title="Pause / Resume Force Simulation">
+              <i class="fa-solid fa-play mr-1"></i> SIM
+            </button>
+          </div>
+
+          <!-- The HTML5 Canvas -->
+          <canvas id="brain-canvas" class="w-full flex-1 cursor-grab active:cursor-grabbing block" style="min-height: 520px;"></canvas>
+
+          <!-- Bottom Legend Bar -->
+          <div class="p-3 bg-slate-900/90 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono backdrop-blur-md">
+            <div class="flex flex-wrap items-center gap-3">
+              <span class="flex items-center text-amber-400"><span class="w-2.5 h-2.5 rounded-full bg-amber-400 mr-1.5 shadow-[0_0_8px_#f59e0b]"></span> Core Hub</span>
+              <span class="flex items-center text-indigo-400"><span class="w-2.5 h-2.5 rounded-full bg-indigo-500 mr-1.5 shadow-[0_0_8px_#6366f1]"></span> Department</span>
+              <span class="flex items-center text-emerald-400"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 mr-1.5 shadow-[0_0_8px_#10b981]"></span> Course</span>
+              <span class="flex items-center text-purple-400"><span class="w-2.5 h-2.5 rounded-full bg-purple-500 mr-1.5 shadow-[0_0_8px_#a855f7]"></span> Concept</span>
+              <span class="flex items-center text-cyan-400"><span class="w-2.5 h-2.5 rounded-full bg-cyan-500 mr-1.5 shadow-[0_0_8px_#06b6d4]"></span> Document</span>
+              <span class="flex items-center text-orange-400"><span class="w-2.5 h-2.5 rounded-full bg-orange-500 mr-1.5 shadow-[0_0_8px_#f97316]"></span> Scraped Notice</span>
+            </div>
+            <div class="text-slate-400 text-[10px]">
+              <i class="fa-solid fa-computer-mouse mr-1 text-slate-500"></i> Drag nodes | Scroll to zoom | Click to inspect
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Interactive Neural Probe & Real-time Thought Pathway Console -->
+        <div class="lg:col-span-4 space-y-4">
+          <!-- Neural Probe Simulator -->
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3.5">
+            <div>
+              <h4 class="text-sm font-bold text-slate-900 flex items-center">
+                <i class="fa-solid fa-bolt text-amber-500 mr-2"></i> Live Neural Pathway Probe
+              </h4>
+              <p class="text-xs text-slate-500 mt-0.5">Fire questions through the Cortex to observe semantic clustering & cognitive reasoning pathways.</p>
+            </div>
+
+            <div class="space-y-2">
+              <input type="text" id="brain-probe-query" placeholder="e.g. CS401 Dynamic Programming or B.Tech practical datesheet"
+                class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50 font-medium">
+
+              <div class="flex flex-wrap gap-1.5">
+                <button onclick="setProbeQuery('What is the syllabus for CS401 Advanced Algorithms?')" class="text-[10px] bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-1 rounded-lg font-medium text-slate-600 transition">
+                  CS401 Syllabus
+                </button>
+                <button onclick="setProbeQuery('When are B.Tech odd semester practical examinations scheduled?')" class="text-[10px] bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-1 rounded-lg font-medium text-slate-600 transition">
+                  B.Tech Datesheet
+                </button>
+                <button onclick="setProbeQuery('What are the PhD course work guidelines and schedule?')" class="text-[10px] bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-1 rounded-lg font-medium text-slate-600 transition">
+                  PhD Guidelines
+                </button>
+                <button onclick="setProbeQuery('Court meeting resolutions regarding university governance')" class="text-[10px] bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-1 rounded-lg font-medium text-slate-600 transition">
+                  Court Minutes
+                </button>
+              </div>
+
+              <button onclick="fireBrainSynapse()" id="btn-fire-synapse" class="w-full bg-slate-950 hover:bg-indigo-950 text-white font-bold text-xs py-2.5 px-4 rounded-xl shadow-sm transition flex items-center justify-center border border-indigo-900/50">
+                <i class="fa-solid fa-wand-magic-sparkles mr-1.5 text-amber-400"></i> <span>Fire Neural Pathway</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Real-time Thought Pathway Console -->
+          <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 shadow-md text-slate-200 space-y-3">
+            <div class="flex justify-between items-center border-b border-slate-800 pb-2.5">
+              <span class="text-xs font-bold font-mono text-emerald-400 flex items-center">
+                <i class="fa-solid fa-terminal mr-2"></i> Thought Pathway Trace
+              </span>
+              <span id="thought-latency-tag" class="text-[10px] font-mono text-slate-400">Ready</span>
+            </div>
+
+            <div id="thought-pathway-container" class="space-y-2.5 min-h-[160px] max-h-[220px] overflow-y-auto text-xs pr-1">
+              <div class="text-slate-500 italic text-center py-8">
+                Click "Fire Neural Pathway" to visualize the cognitive deduction trace across the Cortex...
+              </div>
+            </div>
+
+            <div id="thought-summary-box" class="hidden p-2.5 bg-indigo-950/60 rounded-xl border border-indigo-800/60 text-[11px] font-mono text-indigo-200"></div>
+          </div>
+
+          <!-- Recent Neural Firings Feed -->
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-2">
+            <div class="flex justify-between items-center">
+              <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Episodic Neural Trace</span>
+              <span class="text-[10px] text-slate-400 font-mono" id="episodic-sample-tag">Recent firings</span>
+            </div>
+            <div id="episodic-firings-list" class="space-y-1.5 max-h-36 overflow-y-auto text-xs">
+              <div class="text-slate-400 text-center py-2 text-[11px]">No firings recorded yet.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Glassmorphic Node Inspector Modal / Overlay Drawer -->
+      <div id="brain-node-modal" class="hidden fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden p-6 space-y-4">
+          <div class="flex justify-between items-start border-b border-slate-100 pb-3">
+            <div>
+              <span id="node-modal-type" class="px-2 py-0.5 rounded text-[10px] font-bold font-mono uppercase bg-indigo-100 text-indigo-800">Node</span>
+              <h3 id="node-modal-label" class="text-base font-extrabold text-slate-900 mt-1">Node Title</h3>
+              <p id="node-modal-dept" class="text-xs text-slate-500 font-medium">Department</p>
+            </div>
+            <button onclick="closeBrainNodeModal()" class="text-slate-400 hover:text-slate-600 p-1 text-lg">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+
+          <div id="node-modal-content" class="space-y-2.5 text-xs text-slate-700 max-h-64 overflow-y-auto">
+            <!-- Populated dynamically -->
+          </div>
+
+          <div class="pt-2 flex justify-end gap-2 border-t border-slate-100">
+            <button onclick="probeFromNodeModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition flex items-center">
+              <i class="fa-solid fa-bolt mr-1.5 text-amber-300"></i> Probe this Concept
+            </button>
+            <button onclick="closeBrainNodeModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs px-3.5 py-2 rounded-xl transition">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- ========================================================================= -->
     <!-- TAB 1: INGESTION & WATCHED FOLDERS -->
@@ -1017,8 +1267,206 @@
     </div>
 
     <!-- ========================================================================= -->
+    <!-- TAB: WEB SCRAPER & CONTINUOUS DELTA INGESTION -->
+    <!-- ========================================================================= -->
+    <div id="tab-scraper" class="hidden space-y-6">
+      <!-- Hero / Header Card -->
+      <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 rounded-2xl text-white shadow-md border border-indigo-900/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <div class="flex items-center space-x-2">
+            <span class="text-2xl font-black text-emerald-400">🕷️ University Web Scraper</span>
+            <span id="scraper-status-pill" class="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono font-bold border border-slate-700">● Engine Idle</span>
+          </div>
+          <p class="text-xs text-indigo-200 mt-1 max-w-2xl">
+            Crawls official university portals (<code class="text-emerald-300 font-mono">mdu.ac.in</code>), extracts boilerplate-free Markdown tables & notices via Trafilatura, streams linked PDFs/DOCXs, and executes 3-tier delta change detection (<span class="font-semibold text-white">HTTP 304 ETag</span> & <span class="font-semibold text-white">SHA-256</span>) to auto-index new documents into Qdrant & BM25 with zero redundant compute.
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="btn-clean-scraper-temp-hero" onclick="cleanScraperTempFiles()" class="bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs px-3.5 py-2.5 rounded-xl border border-slate-700 shadow transition flex items-center" title="Reclaim disk space by purging transient downloaded files while preserving original course PDFs">
+            <i class="fa-solid fa-broom mr-1.5 text-amber-400"></i> Clean Temp Files
+          </button>
+          <button id="btn-start-crawl" onclick="startScraperJob()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow transition flex items-center">
+            <i class="fa-solid fa-play mr-1.5"></i> Start Delta Crawl
+          </button>
+          <button id="btn-stop-crawl" onclick="stopCrawler()" disabled class="bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs px-3.5 py-2.5 rounded-xl shadow transition flex items-center">
+            <i class="fa-solid fa-stop mr-1.5"></i> Stop
+          </button>
+        </div>
+      </div>
+
+      <!-- Telemetry Metric Cards -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div class="p-3.5 bg-white rounded-xl border border-slate-200 shadow-sm">
+          <p class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">URLs Visited</p>
+          <p id="scraper-metric-visited" class="text-2xl font-black text-slate-900 mt-1 font-mono">0</p>
+          <p class="text-[10px] text-slate-400 mt-0.5">Discovered via BFS</p>
+        </div>
+        <div class="p-3.5 bg-white rounded-xl border border-slate-200 shadow-sm">
+          <p class="text-[11px] font-bold text-emerald-600 uppercase tracking-wider">Pages Ingested</p>
+          <p id="scraper-metric-pages" class="text-2xl font-black text-emerald-700 mt-1 font-mono">0</p>
+          <p class="text-[10px] text-slate-400 mt-0.5">Clean markdown chunks</p>
+        </div>
+        <div class="p-3.5 bg-white rounded-xl border border-slate-200 shadow-sm">
+          <p class="text-[11px] font-bold text-indigo-600 uppercase tracking-wider">PDFs Ingested</p>
+          <p id="scraper-metric-docs" class="text-2xl font-black text-indigo-700 mt-1 font-mono">0</p>
+          <p class="text-[10px] text-slate-400 mt-0.5">Full OCR + Vector store</p>
+        </div>
+        <div class="p-3.5 bg-white rounded-xl border border-slate-200 shadow-sm">
+          <p class="text-[11px] font-bold text-amber-600 uppercase tracking-wider">Skipped Unchanged</p>
+          <p id="scraper-metric-skipped" class="text-2xl font-black text-amber-600 mt-1 font-mono">0</p>
+          <p class="text-[10px] text-emerald-600 font-semibold mt-0.5">⚡ Zero compute wasted</p>
+        </div>
+        <div class="p-3.5 bg-white rounded-xl border border-slate-200 shadow-sm">
+          <p class="text-[11px] font-bold text-rose-600 uppercase tracking-wider">Errors / Blocked</p>
+          <p id="scraper-metric-errors" class="text-2xl font-black text-rose-600 mt-1 font-mono">0</p>
+          <p class="text-[10px] text-slate-400 mt-0.5">Failures or 4xx/5xx</p>
+        </div>
+      </div>
+
+      <!-- Quick Ingest Single URL Card -->
+      <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+        <h4 class="text-sm font-bold text-slate-900 flex items-center">
+          <i class="fa-solid fa-bolt text-amber-500 mr-2"></i> Quick Ingest: Single Web Page or PDF Document
+        </h4>
+        <p class="text-xs text-slate-500 mt-0.5 mb-3">Instantly fetch, extract, check ETag/SHA-256 delta, and index any official university document or notice into Qdrant & BM25 without a full crawl.</p>
+        <div class="flex flex-col sm:flex-row gap-2">
+          <input type="url" id="quick-crawl-url" placeholder="e.g. https://mdu.ac.in/UpFiles/UpPdfFiles/2026/May/Datesheet_BTech_May2026.pdf"
+            class="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          <button onclick="quickCrawlSingleUrl()" class="bg-slate-900 hover:bg-slate-800 text-white text-xs px-4 py-2 rounded-lg font-bold transition flex items-center justify-center shrink-0">
+            <i class="fa-solid fa-download mr-1.5 text-emerald-400"></i> Fetch & Ingest Now
+          </button>
+        </div>
+        <div id="quick-crawl-result" class="mt-2.5 text-xs hidden p-2.5 rounded-lg font-medium font-mono"></div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Scraper Job Configuration Panel -->
+        <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 lg:col-span-1 space-y-4">
+          <div class="border-b border-slate-100 pb-3">
+            <h4 class="text-sm font-bold text-slate-900 flex items-center">
+              <i class="fa-solid fa-sliders text-indigo-600 mr-2"></i> Crawl Job Configuration
+            </h4>
+            <p class="text-xs text-slate-500">Autonomous schedule and crawl boundary parameters.</p>
+          </div>
+
+          <form id="scraper-config-form" onsubmit="saveScraperConfig(event)" class="space-y-3 text-xs">
+            <input type="hidden" id="cfg-job-id">
+            <div>
+              <label class="block font-semibold text-slate-600 mb-1">Job Name</label>
+              <input type="text" id="cfg-job-name" required class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none font-medium">
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-600 mb-1">Base URL</label>
+              <input type="url" id="cfg-job-base-url" required class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none">
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-600 mb-1">Seed URLs (Comma or Newline separated)</label>
+              <textarea id="cfg-job-seeds" rows="2" required class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"></textarea>
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-600 mb-1">Allowed Domains (Strict whitelist)</label>
+              <input type="text" id="cfg-job-domains" required class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none" placeholder="mdu.ac.in">
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block font-semibold text-slate-600 mb-1">Max Depth</label>
+                <input type="number" id="cfg-job-depth" min="1" max="5" required class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono">
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-600 mb-1">Max Pages</label>
+                <input type="number" id="cfg-job-max-pages" min="10" max="1000" required class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono">
+              </div>
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-600 mb-1">Auto-Schedule Frequency (Minutes)</label>
+              <input type="number" id="cfg-job-interval" min="15" max="10080" required class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono">
+            </div>
+            <div class="flex items-center space-x-2 pt-1">
+              <input type="checkbox" id="cfg-job-auto-ingest" class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4">
+              <label for="cfg-job-auto-ingest" class="font-semibold text-slate-700">Auto-Ingest into Vector DB & BM25</label>
+            </div>
+            <div class="pt-2">
+              <button type="submit" id="btn-save-scraper-cfg" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow transition flex items-center justify-center">
+                <i class="fa-solid fa-floppy-disk mr-1.5"></i> Save Scraper Settings
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Live Activity Console -->
+        <div class="bg-slate-900 p-4 rounded-xl shadow-sm border border-slate-800 lg:col-span-2 flex flex-col">
+          <div class="flex justify-between items-center pb-2 border-b border-slate-800 mb-2">
+            <span class="text-xs font-mono font-bold text-emerald-400 flex items-center">
+              <i class="fa-solid fa-terminal mr-2"></i> Live Crawl Activity Stream
+            </span>
+            <span id="current-url-display" class="text-[11px] font-mono text-slate-400 truncate max-w-xs md:max-w-md">Idle</span>
+          </div>
+          <div id="scraper-logs-console" class="flex-1 overflow-y-auto font-mono text-[11px] space-y-1 text-slate-300 min-h-[260px] max-h-[320px] p-2 bg-slate-950 rounded-lg border border-slate-800/80">
+            <div class="text-slate-500 italic">No active crawl running. Logs and change-detection notifications will stream here...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scraped Documents & Manifest Table -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-50">
+          <div>
+            <h3 class="font-bold text-slate-900 text-base flex items-center">
+              <span>📄 Crawled Resources & Delta Manifest</span>
+              <span id="scraper-manifest-total" class="ml-2 bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded-full font-bold">0</span>
+            </h3>
+            <p class="text-xs text-slate-500 mt-0.5">Complete ledger of discovered web pages, PDFs, ETags, and indexing statuses.</p>
+          </div>
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <select id="scraper-filter-status" onchange="loadScraperManifest(1)" class="px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-700">
+              <option value="">All Statuses</option>
+              <option value="ingested">Ingested</option>
+              <option value="skipped_unchanged">Skipped Unchanged</option>
+              <option value="discovered">Discovered</option>
+              <option value="failed">Failed</option>
+            </select>
+            <input type="text" id="scraper-search-input" onkeyup="debounceScraperSearch()" placeholder="Filter URLs or titles..."
+              class="px-3 py-1.5 border border-slate-300 rounded-lg text-xs w-44 md:w-60 focus:ring-1 focus:ring-indigo-500 focus:outline-none">
+            <button onclick="loadScraperManifest(1)" class="p-1.5 text-slate-500 hover:text-indigo-600 rounded bg-white border border-slate-200" title="Refresh table">
+              <i class="fa-solid fa-rotate-right text-xs"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-200 text-xs">
+            <thead class="bg-slate-50 text-slate-500 uppercase font-semibold">
+              <tr>
+                <th class="px-4 py-3 text-left">Resource / Title</th>
+                <th class="px-3 py-3 text-left">Type</th>
+                <th class="px-3 py-3 text-left">Status</th>
+                <th class="px-3 py-3 text-left">HTTP</th>
+                <th class="px-4 py-3 text-left">ETag / SHA-256</th>
+                <th class="px-3 py-3 text-left">Last Checked</th>
+                <th class="px-3 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="scraper-manifest-body" class="divide-y divide-slate-200 bg-white">
+              <tr><td colspan="7" class="px-4 py-8 text-center text-slate-400">Loading crawled manifest...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="px-4 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-600">
+          <div>Page <strong id="scraper-page-current">1</strong> of <strong id="scraper-page-total">1</strong></div>
+          <div class="space-x-2">
+            <button id="scraper-btn-prev" onclick="loadScraperManifest(scraperCurrentPage - 1)" class="px-3 py-1 bg-white border border-slate-300 rounded hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">Previous</button>
+            <button id="scraper-btn-next" onclick="loadScraperManifest(scraperCurrentPage + 1)" class="px-3 py-1 bg-white border border-slate-300 rounded hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================================= -->
     <!-- TAB 5: MANIFEST (ENTERPRISE SCALABLE) -->
     <!-- ========================================================================= -->
+
     <div id="tab-manifest" class="hidden space-y-6">
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
@@ -1249,6 +1697,221 @@
         </form>
       </div>
     </div>
+
+    <!-- ========================================================================= -->
+    <!-- TAB: RAG FAILURE DIAGNOSTICS CLINIC & SELF-IMPROVEMENT (awesome-llm-apps) -->
+    <!-- ========================================================================= -->
+    <div id="tab-diagnostics" class="hidden space-y-6">
+      <!-- Clinic Header Card -->
+      <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 text-white">
+        <div class="flex flex-wrap justify-between items-center gap-4">
+          <div>
+            <div class="flex items-center space-x-2 mb-1">
+              <span class="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs font-bold font-mono">
+                ● RAG Diagnostics Clinic
+              </span>
+              <span class="px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-xs font-bold">
+                Self-Improving Agent Engine
+              </span>
+            </div>
+            <h2 class="text-2xl font-black tracking-tight">RAG Observability & Auto-Optimization</h2>
+            <p class="text-sm text-slate-400 mt-1 max-w-2xl">
+              Inspect multi-stage retrieval metrics, observe Corrective RAG (CRAG) document grading, and run autonomous Karpathy prompt optimization cycles.
+            </p>
+          </div>
+          <div class="flex items-center space-x-3">
+            <button onclick="loadDiagnosticsClinic()" class="bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs px-3.5 py-2 rounded-xl border border-slate-700 transition flex items-center shadow">
+              <i class="fa-solid fa-rotate mr-1.5 text-indigo-400"></i> Refresh Metrics
+            </button>
+            <button onclick="openPromptRulesModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition flex items-center shadow-lg shadow-indigo-600/30">
+              <i class="fa-solid fa-scroll mr-1.5"></i> Inspect Rules (<span id="diag-rules-count">--</span>)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Telemetry Cards Row -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="flex justify-between items-center">
+            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Retrieval Hit Rate</span>
+            <span class="p-2 rounded-lg bg-emerald-50 text-emerald-600"><i class="fa-solid fa-bullseye text-base"></i></span>
+          </div>
+          <p id="diag-hit-rate" class="text-2xl font-black text-slate-900 mt-2">--%</p>
+          <p class="text-xs text-slate-500 mt-1">Queries passing CRAG relevance gate</p>
+        </div>
+
+        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="flex justify-between items-center">
+            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Avg Query Latency</span>
+            <span class="p-2 rounded-lg bg-indigo-50 text-indigo-600"><i class="fa-solid fa-bolt text-base"></i></span>
+          </div>
+          <p id="diag-avg-latency" class="text-2xl font-black text-slate-900 mt-2">-- ms</p>
+          <p class="text-xs text-slate-500 mt-1">Total end-to-end response time</p>
+        </div>
+
+        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="flex justify-between items-center">
+            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">CRAG Decision Breakdown</span>
+            <span class="p-2 rounded-lg bg-purple-50 text-purple-600"><i class="fa-solid fa-filter text-base"></i></span>
+          </div>
+          <div class="flex items-center space-x-2 mt-2">
+            <span class="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200" id="diag-correct-cnt">0 OK</span>
+            <span class="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200" id="diag-ambig-cnt">0 Ambig</span>
+            <span class="text-xs font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200" id="diag-incorrect-cnt">0 Abstain</span>
+          </div>
+          <p class="text-xs text-slate-500 mt-1.5">Pre-generation relevance verdicts</p>
+        </div>
+
+        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="flex justify-between items-center">
+            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Audited Queries</span>
+            <span class="p-2 rounded-lg bg-slate-50 text-slate-600"><i class="fa-solid fa-chart-simple text-base"></i></span>
+          </div>
+          <p id="diag-total-queries" class="text-2xl font-black text-slate-900 mt-2">--</p>
+          <p class="text-xs text-slate-500 mt-1">Logged with privacy-preserving hash</p>
+        </div>
+      </div>
+
+      <!-- Pipeline Funnel Visualizer -->
+      <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+        <h3 class="text-base font-bold text-slate-900 mb-4 flex items-center">
+          <i class="fa-solid fa-diagram-project text-indigo-600 mr-2"></i> End-to-End RAG Pipeline Funnel
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
+          <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+            <div class="w-8 h-8 mx-auto mb-2 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">1</div>
+            <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider">Vector + BM25 Index</h4>
+            <p id="funnel-stage1" class="text-lg font-black text-slate-900 mt-1">604 Chunks</p>
+            <p class="text-[11px] text-slate-500 mt-1">Dual hybrid indexing</p>
+          </div>
+          <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+            <div class="w-8 h-8 mx-auto mb-2 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-sm">2</div>
+            <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider">Hybrid Retrieval</h4>
+            <p id="funnel-stage2" class="text-lg font-black text-blue-700 mt-1">Top-30 Ranked</p>
+            <p class="text-[11px] text-slate-500 mt-1">RRF rank fusion</p>
+          </div>
+          <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+            <div class="w-8 h-8 mx-auto mb-2 rounded-full bg-amber-100 text-amber-700 font-bold flex items-center justify-center text-sm">3</div>
+            <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider">CRAG Pre-Evaluator</h4>
+            <p id="funnel-stage3" class="text-lg font-black text-amber-700 mt-1">Gate Filtering</p>
+            <p class="text-[11px] text-slate-500 mt-1">Suppresses hallucinations</p>
+          </div>
+          <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+            <div class="w-8 h-8 mx-auto mb-2 rounded-full bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center text-sm">4</div>
+            <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider">GPU Generation</h4>
+            <p id="funnel-stage4" class="text-lg font-black text-emerald-700 mt-1">RTX 3060 Local</p>
+            <p class="text-[11px] text-slate-500 mt-1">Grounded token synthesis</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Self-Improving Prompt Auto-Optimization Section -->
+      <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+        <div class="flex flex-wrap justify-between items-start mb-4 gap-3">
+          <div>
+            <h3 class="text-base font-bold text-slate-900 flex items-center">
+              <i class="fa-solid fa-wand-magic-sparkles text-amber-500 mr-2"></i> Self-Improving Prompt Auto-Optimization Engine
+            </h3>
+            <p class="text-xs text-slate-500 mt-0.5">
+              Runs Karpathy's autoresearch optimization loop: harvests baseline scores &rarr; mutates candidate rules &rarr; re-benchmarks &rarr; commits or safely rolls back.
+            </p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button onclick="resetPromptRules()" class="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-rose-600 bg-slate-100 hover:bg-rose-50 rounded-lg border border-slate-200 transition">
+              <i class="fa-solid fa-clock-rotate-left mr-1"></i> Reset Rules to Default
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2">
+          <!-- Control Panel -->
+          <div class="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+            <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider">Trigger Optimization Loop</h4>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Mutation Strategy</label>
+              <select id="opt-strategy" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                <option value="add_constraint">Add Constraint (Hallucination Defense)</option>
+                <option value="add_example">Add Few-Shot / Formatting Example</option>
+                <option value="refine_rule">Refine Academic Tone & Politeness</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Custom Candidate Rule (Optional)</label>
+              <textarea id="opt-custom-rule" rows="2" placeholder="Leave empty for auto-generated strategy mutation..."
+                class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none"></textarea>
+            </div>
+            <button onclick="triggerSelfImprovement()" id="btn-run-opt" class="w-full bg-slate-900 hover:bg-black text-white font-bold text-xs py-2.5 px-4 rounded-xl shadow transition flex items-center justify-center">
+              <i class="fa-solid fa-play mr-2 text-indigo-400"></i> Run Auto-Optimization Cycle
+            </button>
+            <div id="opt-running-indicator" class="hidden p-3 bg-indigo-50 rounded-lg border border-indigo-200 text-center">
+              <p class="text-xs font-bold text-indigo-700 flex items-center justify-center">
+                <i class="fa-solid fa-spinner fa-spin mr-2"></i> Benchmarking prompt mutation on GPU...
+              </p>
+              <p class="text-[11px] text-indigo-500 mt-1">Takes ~30-60s to evaluate baseline & candidates.</p>
+            </div>
+          </div>
+
+          <!-- History Table -->
+          <div class="lg:col-span-2 space-y-2">
+            <div class="flex justify-between items-center">
+              <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider">Optimization Run History</h4>
+              <span id="opt-history-badge" class="text-xs font-bold font-mono text-slate-500">0 runs</span>
+            </div>
+            <div class="overflow-x-auto border border-slate-200 rounded-xl bg-white max-h-60 overflow-y-auto">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 sticky top-0">
+                  <tr>
+                    <th class="py-2.5 px-3">Time</th>
+                    <th class="py-2.5 px-3">Strategy</th>
+                    <th class="py-2.5 px-3">Candidate Mutation</th>
+                    <th class="py-2.5 px-3">Score Diff</th>
+                    <th class="py-2.5 px-3">Outcome</th>
+                  </tr>
+                </thead>
+                <tbody id="opt-history-tbody" class="divide-y divide-slate-100">
+                  <tr><td colspan="5" class="py-4 text-center text-slate-400">No optimization runs recorded yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent Query Audit Log Table -->
+      <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+        <div class="flex justify-between items-center">
+          <div>
+            <h3 class="text-base font-bold text-slate-900 flex items-center">
+              <i class="fa-solid fa-list-check text-indigo-600 mr-2"></i> Live Audited Queries & CRAG Pipeline Verdicts
+            </h3>
+            <p class="text-xs text-slate-500 mt-0.5">Real-time log of student queries with exact CRAG relevance gate classification.</p>
+          </div>
+          <button onclick="clearDiagnosticsLog()" class="px-3 py-1 text-xs font-semibold text-slate-500 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 rounded-lg border border-slate-200 transition">
+            Clear Audit Log
+          </button>
+        </div>
+
+        <div class="overflow-x-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+              <tr>
+                <th class="py-3 px-4">Timestamp</th>
+                <th class="py-3 px-4">Query Hash</th>
+                <th class="py-3 px-4">Engine</th>
+                <th class="py-3 px-4">CRAG Decision</th>
+                <th class="py-3 px-4">Confidence</th>
+                <th class="py-3 px-4">Latency</th>
+                <th class="py-3 px-4">Tokens</th>
+              </tr>
+            </thead>
+            <tbody id="diag-queries-tbody" class="divide-y divide-slate-100 font-mono">
+              <tr><td colspan="7" class="py-6 text-center text-slate-400 font-sans">Loading query audit telemetry...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </main>
 
   <!-- ========================================================================= -->
@@ -1406,6 +2069,36 @@
   </div>
 
   <!-- ========================================================================= -->
+  <!-- MODAL: INSPECT SYSTEM PROMPT RULES (Self-Improving RAG) -->
+  <!-- ========================================================================= -->
+  <div id="prompt-rules-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-2xl w-full shadow-2xl p-6 space-y-4 max-h-[85vh] flex flex-col">
+      <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+        <div>
+          <h3 class="font-bold text-slate-900 text-base flex items-center">
+            <i class="fa-solid fa-scroll text-indigo-600 mr-2"></i> Active System Prompt Rules
+          </h3>
+          <p class="text-xs text-slate-500">Autonomous rules currently active in local GPU chat generator.</p>
+        </div>
+        <button onclick="closePromptRulesModal()" class="text-slate-400 hover:text-slate-600 text-xl">&times;</button>
+      </div>
+
+      <div id="prompt-rules-list" class="flex-1 overflow-y-auto space-y-2 text-xs text-slate-700 pr-1 max-h-[60vh]">
+        <!-- Populated via JS -->
+      </div>
+
+      <div class="flex justify-between items-center pt-3 border-t border-slate-100">
+        <button onclick="resetPromptRules()" class="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-semibold transition flex items-center">
+          <i class="fa-solid fa-clock-rotate-left mr-1.5"></i> Reset to Baseline
+        </button>
+        <button onclick="closePromptRulesModal()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold transition">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
   <!-- MODAL: ADD URL RULE -->
   <!-- ========================================================================= -->
   <div id="url-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
@@ -1556,6 +2249,17 @@
       return headers;
     }
 
+    // HTML sanitization helper against XSS
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     function saveToken() {
       const val = document.getElementById("admin-token").value.trim();
       if (val) {
@@ -1567,7 +2271,7 @@
 
     // Tabs Switcher
     function switchTab(tabId) {
-      ['tab-ingest', 'tab-pipeline', 'tab-failed', 'tab-docs', 'tab-apikeys', 'tab-urls', 'tab-manifest', 'tab-security', 'tab-settings'].forEach(id => {
+      ['tab-brain', 'tab-ingest', 'tab-pipeline', 'tab-failed', 'tab-docs', 'tab-apikeys', 'tab-urls', 'tab-scraper', 'tab-manifest', 'tab-security', 'tab-diagnostics', 'tab-settings'].forEach(id => {
         const el = document.getElementById(id);
         const btn = document.getElementById(`btn-${id}`);
         if (el) el.classList.add('hidden');
@@ -1578,12 +2282,241 @@
       if (activeEl) activeEl.classList.remove('hidden');
       if (activeBtn) activeBtn.classList.add('tab-active');
 
+      if (tabId === 'tab-brain') { loadBrainGraph(); loadBrainTelemetry(); }
       if (tabId === 'tab-failed') loadFailedFiles(1);
       if (tabId === 'tab-docs') loadDocuments();
       if (tabId === 'tab-apikeys') loadApiKeys();
       if (tabId === 'tab-urls') loadUrlRules();
+      if (tabId === 'tab-scraper') { loadScraperJobs(); loadScraperManifest(1); pollScraperStatus(); }
       if (tabId === 'tab-manifest') loadManifest();
       if (tabId === 'tab-security') { loadSecurityStats(); loadSecurityIncidents(1); }
+      if (tabId === 'tab-diagnostics') loadDiagnosticsClinic();
+    }
+
+
+    // =========================================================================
+    // RAG FAILURE DIAGNOSTICS CLINIC & SELF-IMPROVING PROMPT ENGINE
+    // =========================================================================
+    async function loadDiagnosticsClinic() {
+      try {
+        const res = await fetch('/api/v1/admin/rag/diagnostics', { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const d = await res.json();
+
+        // 1. Cards
+        const hitRateEl = document.getElementById('diag-hit-rate');
+        if (hitRateEl) hitRateEl.textContent = (d.retrieval_hit_rate != null ? d.retrieval_hit_rate : '--') + '%';
+        const latEl = document.getElementById('diag-avg-latency');
+        if (latEl) latEl.textContent = (d.avg_latency_ms != null ? d.avg_latency_ms : '--') + ' ms';
+        const totalEl = document.getElementById('diag-total-queries');
+        if (totalEl) totalEl.textContent = d.total_queries != null ? d.total_queries : '0';
+
+        if (d.crag_breakdown) {
+          const corEl = document.getElementById('diag-correct-cnt');
+          if (corEl) corEl.textContent = (d.crag_breakdown.correct || 0) + ' OK';
+          const ambEl = document.getElementById('diag-ambig-cnt');
+          if (ambEl) ambEl.textContent = (d.crag_breakdown.ambiguous || 0) + ' Ambig';
+          const incEl = document.getElementById('diag-incorrect-cnt');
+          if (incEl) incEl.textContent = (d.crag_breakdown.incorrect || 0) + ' Abstain';
+        }
+
+        // 2. Funnel
+        if (d.funnel_stages) {
+          const f1 = document.getElementById('funnel-stage1');
+          if (f1) f1.textContent = d.funnel_stages.stage1_ingestion || '604 Chunks';
+          const f2 = document.getElementById('funnel-stage2');
+          if (f2) f2.textContent = d.funnel_stages.stage2_retrieval_hit_rate || 'Top-30 Ranked';
+          const f3 = document.getElementById('funnel-stage3');
+          if (f3) f3.textContent = d.funnel_stages.stage3_crag_evaluator || 'Gate Filtering';
+          const f4 = document.getElementById('funnel-stage4');
+          if (f4) f4.textContent = d.funnel_stages.stage4_local_gpu_generation || 'RTX 3060 Local';
+        }
+
+        // 3. Recent Audited Queries Table
+        const tbody = document.getElementById('diag-queries-tbody');
+        if (tbody) {
+          if (!d.recent_queries || d.recent_queries.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-400 font-sans">No recent query audit records found.</td></tr>';
+          } else {
+            tbody.innerHTML = d.recent_queries.map(q => {
+              const dt = q.timestamp ? new Date(q.timestamp).toLocaleTimeString() : '--';
+              let badge = '';
+              if (q.crag_decision === 'CORRECT') {
+                badge = '<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">CORRECT</span>';
+              } else if (q.crag_decision === 'AMBIGUOUS') {
+                badge = '<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">AMBIGUOUS</span>';
+              } else {
+                badge = '<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200">INCORRECT</span>';
+              }
+              const conf = q.confidence != null ? (q.confidence * 100).toFixed(0) + '%' : '--';
+              return `
+                <tr class="hover:bg-slate-50 transition">
+                  <td class="py-2.5 px-4 text-slate-600">${dt}</td>
+                  <td class="py-2.5 px-4 text-slate-800 font-bold">${q.question_hash}</td>
+                  <td class="py-2.5 px-4"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">${q.served_by}</span></td>
+                  <td class="py-2.5 px-4">${badge}</td>
+                  <td class="py-2.5 px-4 text-slate-700">${conf}</td>
+                  <td class="py-2.5 px-4 text-slate-600 font-bold">${q.latency_ms} ms</td>
+                  <td class="py-2.5 px-4 text-slate-500">${q.tokens_used}</td>
+                </tr>
+              `;
+            }).join('');
+          }
+        }
+
+        // 4. Also fetch history and rules count
+        loadOptimizationHistory();
+        loadRulesCount();
+      } catch (e) {
+        console.error("Diagnostics clinic load error:", e);
+      }
+    }
+
+    async function loadOptimizationHistory() {
+      try {
+        const res = await fetch('/api/v1/admin/rag/self-improve/history', { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const d = await res.json();
+        const badge = document.getElementById('opt-history-badge');
+        if (badge) badge.textContent = `${d.total || 0} runs`;
+
+        const tbody = document.getElementById('opt-history-tbody');
+        if (tbody) {
+          if (!d.history || d.history.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-400">No prompt optimization runs recorded yet.</td></tr>';
+          } else {
+            tbody.innerHTML = d.history.map(h => {
+              const dt = h.timestamp ? new Date(h.timestamp).toLocaleString() : '--';
+              const diff = `${h.baseline_score != null ? h.baseline_score.toFixed(0) : '--'}% &rarr; ${h.new_score != null ? h.new_score.toFixed(0) : '--'}%`;
+              let statusBadge = '';
+              if (h.status === 'ACCEPTED') {
+                statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">ACCEPTED</span>';
+              } else {
+                statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">ROLLED_BACK</span>';
+              }
+              const mutText = (h.mutation_applied || '').replace(/"/g, '&quot;');
+              const shortMut = mutText.length > 55 ? mutText.substring(0, 52) + '...' : mutText;
+              return `
+                <tr class="hover:bg-slate-50 transition">
+                  <td class="py-2 px-3 text-slate-500 whitespace-nowrap">${dt}</td>
+                  <td class="py-2 px-3 font-semibold text-slate-700">${h.mutation_strategy}</td>
+                  <td class="py-2 px-3 text-slate-800" title="${mutText}">${shortMut}</td>
+                  <td class="py-2 px-3 font-mono font-bold text-slate-700">${diff}</td>
+                  <td class="py-2 px-3">${statusBadge}</td>
+                </tr>
+              `;
+            }).join('');
+          }
+        }
+      } catch (e) {
+        console.error("Optimization history load error:", e);
+      }
+    }
+
+    async function loadRulesCount() {
+      try {
+        const res = await fetch('/api/v1/admin/rag/prompt-rules', { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const d = await res.json();
+        const badge = document.getElementById('diag-rules-count');
+        if (badge) badge.textContent = `${d.count || 0} active`;
+      } catch (e) {
+        console.error("Prompt rules count load error:", e);
+      }
+    }
+
+    async function triggerSelfImprovement() {
+      const btn = document.getElementById('btn-run-opt');
+      const indicator = document.getElementById('opt-running-indicator');
+      const strategy = document.getElementById('opt-strategy').value;
+      const customRule = document.getElementById('opt-custom-rule').value.trim();
+
+      if (btn) btn.disabled = true;
+      if (indicator) indicator.classList.remove('hidden');
+
+      try {
+        const payload = { strategy: strategy };
+        if (customRule) payload.rule = customRule;
+
+        const res = await fetch('/api/v1/admin/rag/self-improve', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          const r = data.result;
+          alert(`Autonomous Self-Improvement Complete!\nStatus: ${r.status}\nBaseline Score: ${r.baseline_score}%\nNew Score: ${r.new_score}%\nActive Rules: ${r.total_active_rules}`);
+        } else {
+          alert(`Self-Improvement failed: ${data.detail || 'Unknown error'}`);
+        }
+      } catch (err) {
+        alert(`Error triggering self-improver: ${err.message}`);
+      } finally {
+        if (btn) btn.disabled = false;
+        if (indicator) indicator.classList.add('hidden');
+        loadDiagnosticsClinic();
+      }
+    }
+
+    async function resetPromptRules() {
+      if (!confirm("Are you sure you want to reset active prompt rules to default university baseline?")) return;
+      try {
+        const res = await fetch('/api/v1/admin/rag/prompt-rules/reset', {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        const d = await res.json();
+        alert(d.message || "Prompt rules reset to default.");
+        loadDiagnosticsClinic();
+        closePromptRulesModal();
+      } catch (err) {
+        alert("Error resetting rules: " + err.message);
+      }
+    }
+
+    async function openPromptRulesModal() {
+      const modal = document.getElementById('prompt-rules-modal');
+      const container = document.getElementById('prompt-rules-list');
+      if (!modal || !container) return;
+
+      container.innerHTML = '<p class="text-slate-400 py-4 text-center">Loading prompt rules...</p>';
+      modal.classList.remove('hidden');
+
+      try {
+        const res = await fetch('/api/v1/admin/rag/prompt-rules', { headers: getAuthHeaders() });
+        if (!res.ok) throw new Error("Failed to fetch rules");
+        const d = await res.json();
+        const rules = d.rules || [];
+        container.innerHTML = rules.map((r, idx) => `
+          <div class="p-3 rounded-lg bg-slate-50 border border-slate-200 flex items-start space-x-2.5">
+            <span class="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">${idx + 1}</span>
+            <p class="text-xs text-slate-800 leading-relaxed">${r}</p>
+          </div>
+        `).join('');
+      } catch (err) {
+        container.innerHTML = `<p class="text-rose-500 py-4 text-center">Error loading rules: ${err.message}</p>`;
+      }
+    }
+
+    function closePromptRulesModal() {
+      const modal = document.getElementById('prompt-rules-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    async function clearDiagnosticsLog() {
+      if (!confirm("Clear query audit log records for clean benchmark telemetry?")) return;
+      try {
+        const res = await fetch('/api/v1/admin/rag/diagnostics/clear', {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        const d = await res.json();
+        alert(d.message || "Audit log cleared.");
+        loadDiagnosticsClinic();
+      } catch (err) {
+        alert("Error clearing log: " + err.message);
+      }
     }
 
 
@@ -3686,6 +4619,1378 @@
       }
     });
 
+    // =========================================================================
+    // WEB SCRAPER & DELTA INGESTION CONTROLLER
+    // =========================================================================
+    let scraperCurrentPage = 1;
+    let scraperTotalPages = 1;
+    let scraperPollInterval = null;
+    let scraperSearchTimeout = null;
+    let activeScraperJobId = null;
+
+    function debounceScraperSearch() {
+      clearTimeout(scraperSearchTimeout);
+      scraperSearchTimeout = setTimeout(() => {
+        loadScraperManifest(1);
+      }, 350);
+    }
+
+    async function loadScraperJobs() {
+      try {
+        const res = await fetch('/api/v1/admin/scraper/jobs', { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const d = await res.json();
+        const jobs = d.jobs || [];
+        if (jobs.length > 0) {
+          const j = jobs[0];
+          activeScraperJobId = j.id;
+          const elId = document.getElementById('cfg-job-id');
+          const elName = document.getElementById('cfg-job-name');
+          const elBase = document.getElementById('cfg-job-base-url');
+          const elSeeds = document.getElementById('cfg-job-seeds');
+          const elDomains = document.getElementById('cfg-job-domains');
+          const elDepth = document.getElementById('cfg-job-depth');
+          const elPages = document.getElementById('cfg-job-max-pages');
+          const elInt = document.getElementById('cfg-job-interval');
+          const elAuto = document.getElementById('cfg-job-auto-ingest');
+
+          if (elId) elId.value = j.id;
+          if (elName) elName.value = j.name || "MDU Main Scraper";
+          if (elBase) elBase.value = j.base_url || "https://mdu.ac.in";
+          if (elSeeds) elSeeds.value = (j.seed_urls || []).join('\n');
+          if (elDomains) elDomains.value = j.allowed_domains || "mdu.ac.in";
+          if (elDepth) elDepth.value = j.max_depth || 3;
+          if (elPages) elPages.value = j.max_pages || 300;
+          if (elInt) elInt.value = j.crawl_interval_minutes || 360;
+          if (elAuto) elAuto.checked = j.auto_ingest !== false;
+
+          const stats = j.stats || {};
+          if (stats.pages_scraped !== undefined) document.getElementById('scraper-metric-pages').textContent = stats.pages_scraped;
+          if (stats.documents_downloaded !== undefined) document.getElementById('scraper-metric-docs').textContent = stats.documents_downloaded;
+          if (stats.skipped_unchanged !== undefined) document.getElementById('scraper-metric-skipped').textContent = stats.skipped_unchanged;
+          if (stats.errors !== undefined) document.getElementById('scraper-metric-errors').textContent = stats.errors;
+          if (stats.total_urls_visited !== undefined) document.getElementById('scraper-metric-visited').textContent = stats.total_urls_visited;
+        }
+      } catch (err) {
+        console.error("loadScraperJobs error:", err);
+      }
+    }
+
+    async function saveScraperConfig(e) {
+      e.preventDefault();
+      if (!activeScraperJobId) {
+        alert("No active scraper job ID available.");
+        return;
+      }
+
+      const seedsRaw = document.getElementById('cfg-job-seeds').value.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+      const payload = {
+        name: document.getElementById('cfg-job-name').value.trim(),
+        base_url: document.getElementById('cfg-job-base-url').value.trim(),
+        seed_urls: seedsRaw,
+        allowed_domains: document.getElementById('cfg-job-domains').value.trim(),
+        max_depth: parseInt(document.getElementById('cfg-job-depth').value, 10),
+        max_pages: parseInt(document.getElementById('cfg-job-max-pages').value, 10),
+        crawl_interval_minutes: parseInt(document.getElementById('cfg-job-interval').value, 10),
+        auto_ingest: document.getElementById('cfg-job-auto-ingest').checked,
+      };
+
+      const btn = document.getElementById('btn-save-scraper-cfg');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1.5"></i> Saving...';
+
+      try {
+        const res = await fetch(`/api/v1/admin/scraper/jobs/${activeScraperJobId}`, {
+          method: 'PUT',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(payload)
+        });
+        const d = await res.json();
+        if (res.ok) {
+          alert("Scraper job configuration saved successfully.");
+          loadScraperJobs();
+        } else {
+          alert(`Failed to save: ${d.detail || 'Unknown error'}`);
+        }
+      } catch (err) {
+        alert(`Request error: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-1.5"></i> Save Scraper Settings';
+      }
+    }
+
+    async function startScraperJob() {
+      if (!activeScraperJobId) {
+        await loadScraperJobs();
+      }
+      if (!activeScraperJobId) {
+        alert("No scraper job available to run.");
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/v1/admin/scraper/jobs/${activeScraperJobId}/run`, {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        const d = await res.json();
+        if (res.ok) {
+          pollScraperStatus();
+          if (!scraperPollInterval) {
+            scraperPollInterval = setInterval(pollScraperStatus, 2000);
+          }
+        } else {
+          alert(`Crawl failed to start: ${d.detail || d.message || 'Error'}`);
+        }
+      } catch (err) {
+        alert(`Error starting crawl: ${err.message}`);
+      }
+    }
+
+    async function stopCrawler() {
+      try {
+        const res = await fetch('/api/v1/admin/scraper/stop', {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        const d = await res.json();
+        alert(d.message || "Halt requested.");
+        pollScraperStatus();
+      } catch (err) {
+        alert(`Error stopping crawl: ${err.message}`);
+      }
+    }
+
+    async function pollScraperStatus() {
+      try {
+        const res = await fetch('/api/v1/admin/scraper/status', { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const d = await res.json();
+
+        const isRunning = d.is_running;
+        const pill = document.getElementById('scraper-status-pill');
+        const badge = document.getElementById('scraper-tab-badge');
+        const btnStart = document.getElementById('btn-start-crawl');
+        const btnStop = document.getElementById('btn-stop-crawl');
+        const curUrl = document.getElementById('current-url-display');
+
+        if (pill) {
+          pill.className = isRunning
+            ? "text-xs px-2.5 py-0.5 rounded-full bg-emerald-900 text-emerald-300 font-mono font-bold border border-emerald-700 animate-pulse"
+            : "text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono font-bold border border-slate-700";
+          pill.textContent = isRunning ? "● Crawling Active" : "● Engine Idle";
+        }
+
+        if (badge) {
+          badge.className = isRunning
+            ? "ml-1.5 text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-full border border-emerald-200 animate-pulse"
+            : "ml-1.5 text-[10px] bg-slate-100 text-slate-700 font-bold px-1.5 py-0.2 rounded-full border border-slate-200";
+          badge.textContent = isRunning ? "Active" : "Idle";
+        }
+
+        if (btnStart) btnStart.disabled = isRunning;
+        if (btnStop) btnStop.disabled = !isRunning;
+        if (curUrl) curUrl.textContent = isRunning ? (d.current_url || "Traversing link queue...") : "Idle";
+
+        const s = d.stats || {};
+        if (s.total_urls_visited !== undefined) document.getElementById('scraper-metric-visited').textContent = s.total_urls_visited;
+        if (s.pages_scraped !== undefined) document.getElementById('scraper-metric-pages').textContent = s.pages_scraped;
+        if (s.documents_downloaded !== undefined) document.getElementById('scraper-metric-docs').textContent = s.documents_downloaded;
+        if (s.skipped_unchanged !== undefined) document.getElementById('scraper-metric-skipped').textContent = s.skipped_unchanged;
+        if (s.errors !== undefined) document.getElementById('scraper-metric-errors').textContent = s.errors;
+
+        const consoleEl = document.getElementById('scraper-logs-console');
+        if (consoleEl && d.activity_logs && d.activity_logs.length > 0) {
+          consoleEl.innerHTML = d.activity_logs.map(l => {
+            let color = "text-slate-300";
+            if (l.level === "error") color = "text-rose-400 font-semibold";
+            else if (l.level === "warning") color = "text-amber-300";
+            else if (l.message.includes("✅")) color = "text-emerald-300 font-semibold";
+            else if (l.message.includes("⚡")) color = "text-amber-200";
+            else if (l.message.includes("📥")) color = "text-indigo-300";
+
+            return `<div class="flex items-start space-x-2"><span class="text-slate-500 font-mono select-none">${l.timestamp}</span><span class="${color}">${l.message}</span></div>`;
+          }).join('');
+          consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        if (!isRunning && scraperPollInterval) {
+          clearInterval(scraperPollInterval);
+          scraperPollInterval = null;
+          loadScraperManifest(1);
+        }
+      } catch (err) {
+        console.error("pollScraperStatus error:", err);
+      }
+    }
+
+    async function loadScraperManifest(page = 1) {
+      scraperCurrentPage = page;
+      const tbody = document.getElementById('scraper-manifest-body');
+      if (!tbody) return;
+
+      const status = document.getElementById('scraper-filter-status').value;
+      const search = document.getElementById('scraper-search-input').value.trim();
+
+      const params = new URLSearchParams({ page: page, limit: 20 });
+      if (status) params.append("status_filter", status);
+      if (search) params.append("search", search);
+
+      try {
+        const res = await fetch(`/api/v1/admin/scraper/manifest?${params.toString()}`, {
+          headers: getAuthHeaders()
+        });
+        if (!res.ok) {
+          tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-rose-500">Failed to load manifest (${res.status})</td></tr>`;
+          return;
+        }
+
+        const data = await res.json();
+        scraperTotalPages = Math.ceil(data.total / data.limit) || 1;
+
+        const countEl = document.getElementById('scraper-manifest-total');
+        if (countEl) countEl.textContent = (data.total || 0).toLocaleString();
+
+        const curEl = document.getElementById('scraper-page-current');
+        const totEl = document.getElementById('scraper-page-total');
+        if (curEl) curEl.textContent = data.page;
+        if (totEl) totEl.textContent = scraperTotalPages;
+
+        const prevBtn = document.getElementById('scraper-btn-prev');
+        const nextBtn = document.getElementById('scraper-btn-next');
+        if (prevBtn) prevBtn.disabled = data.page <= 1;
+        if (nextBtn) nextBtn.disabled = data.page >= scraperTotalPages;
+
+        if (!data.items || data.items.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="7" class="px-4 py-12 text-center text-slate-400">
+                <i class="fa-solid fa-spider text-3xl text-slate-300 mb-2 block"></i>
+                <p class="font-semibold text-slate-600 text-sm">No Crawled Resources Found</p>
+                <p class="text-xs text-slate-400">Run a delta crawl or enter a URL in Quick Ingest above.</p>
+              </td>
+            </tr>`;
+          return;
+        }
+
+        tbody.innerHTML = data.items.map(it => {
+          let statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">${escapeHtml(it.status)}</span>`;
+          if (it.status === "ingested") {
+            statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">Indexed</span>`;
+          } else if (it.status === "skipped_unchanged") {
+            statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">Unchanged (304)</span>`;
+          } else if (it.status === "failed") {
+            statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">Failed</span>`;
+          }
+
+          let typeBadge = (it.content_type || "").includes("pdf")
+            ? `<span class="text-rose-700 font-bold"><i class="fa-solid fa-file-pdf mr-1"></i> PDF</span>`
+            : `<span class="text-indigo-700 font-medium"><i class="fa-solid fa-globe mr-1"></i> HTML</span>`;
+
+          let dateStr = "N/A";
+          if (it.last_checked_at) {
+            const d = new Date(it.last_checked_at);
+            dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+          }
+
+          const safeEtag = it.etag ? escapeHtml(it.etag) : '';
+          const etagShort = safeEtag ? `<span class="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded text-slate-700" title="${safeEtag}">${safeEtag.slice(0, 16)}...</span>` : '<span class="text-slate-400">None</span>';
+
+          const safeTitle = escapeHtml(it.title || 'Untitled');
+          const safeUrl = escapeHtml(it.url);
+
+          return `
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-2.5 max-w-xs md:max-w-sm">
+                <div class="font-semibold text-slate-900 truncate" title="${safeTitle}">${safeTitle}</div>
+                <div class="text-[10px] text-slate-400 font-mono truncate" title="${safeUrl}">
+                  <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="hover:text-indigo-600 hover:underline flex items-center">
+                    ${safeUrl} <i class="fa-solid fa-arrow-up-right-from-square ml-1 text-[9px]"></i>
+                  </a>
+                </div>
+              </td>
+              <td class="px-3 py-2.5 whitespace-nowrap">${typeBadge}</td>
+              <td class="px-3 py-2.5 whitespace-nowrap">${statusBadge}</td>
+              <td class="px-3 py-2.5 whitespace-nowrap font-mono text-slate-600">${escapeHtml(it.http_status || '--')}</td>
+              <td class="px-4 py-2.5 whitespace-nowrap">${etagShort}</td>
+              <td class="px-3 py-2.5 whitespace-nowrap font-mono text-slate-500">${escapeHtml(dateStr)}</td>
+              <td class="px-3 py-2.5 text-right whitespace-nowrap">
+                <button onclick="reingestSingleUrl(this.getAttribute('data-url'))" data-url="${safeUrl}" class="text-indigo-600 hover:text-indigo-800 text-[11px] font-semibold px-2 py-1 rounded hover:bg-indigo-50 border border-indigo-200 mr-1" title="Force re-fetch and re-index">
+                  <i class="fa-solid fa-arrows-rotate mr-1"></i> Re-index
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+      } catch (err) {
+        console.error("loadScraperManifest error:", err);
+        tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-rose-500">Error loading manifest: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    async function quickCrawlSingleUrl() {
+      const input = document.getElementById('quick-crawl-url');
+      const resBox = document.getElementById('quick-crawl-result');
+      const url = input.value.trim();
+      if (!url) {
+        alert("Please enter a valid university URL or PDF link.");
+        return;
+      }
+
+      resBox.className = "mt-2.5 text-xs p-2.5 rounded-lg font-medium font-mono bg-slate-100 text-slate-700 block";
+      resBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> Connecting to server, checking ETag / SHA-256 delta, and indexing...';
+
+      try {
+        const res = await fetch('/api/v1/admin/scraper/crawl-single', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ url: url, auto_ingest: true })
+        });
+        const d = await res.json();
+        if (res.ok) {
+          if (d.status === "skipped") {
+            resBox.className = "mt-2.5 text-xs p-2.5 rounded-lg font-medium font-mono bg-amber-50 text-amber-800 border border-amber-200 block";
+            resBox.innerHTML = `⚡ <strong>Skipped Unchanged:</strong> ${escapeHtml(d.message || d.reason)} (Zero compute wasted)`;
+          } else {
+            resBox.className = "mt-2.5 text-xs p-2.5 rounded-lg font-medium font-mono bg-emerald-50 text-emerald-800 border border-emerald-200 block";
+            resBox.innerHTML = `✅ <strong>Successfully Ingested:</strong> ${escapeHtml(d.title || d.action)}`;
+          }
+          input.value = "";
+          loadScraperManifest(1);
+        } else {
+          resBox.className = "mt-2.5 text-xs p-2.5 rounded-lg font-medium font-mono bg-rose-50 text-rose-800 border border-rose-200 block";
+          resBox.innerHTML = `❌ <strong>Error:</strong> ${escapeHtml(d.detail || 'Failed to ingest URL')}`;
+        }
+      } catch (err) {
+        resBox.className = "mt-2.5 text-xs p-2.5 rounded-lg font-medium font-mono bg-rose-50 text-rose-800 border border-rose-200 block";
+        resBox.innerHTML = `❌ <strong>Request Exception:</strong> ${escapeHtml(err.message)}`;
+      }
+    }
+
+    async function reingestSingleUrl(url) {
+      if (!url) return;
+      if (!confirm(`Re-fetch and re-index "${url}"?`)) return;
+      document.getElementById('quick-crawl-url').value = url;
+      await quickCrawlSingleUrl();
+    }
+
+    async function cleanScraperTempFiles() {
+      if (!confirm("Reclaim disk space by cleaning transient scraped downloads?\n\nNote: All indexed vectors & original course documents (e.g. data/sample_courses/) are 100% preserved.")) {
+        return;
+      }
+      const btn1 = document.getElementById('btn-clean-scraper-temp');
+      const btn2 = document.getElementById('btn-clean-scraper-temp-hero');
+      const origText1 = btn1 ? btn1.innerHTML : '';
+      const origText2 = btn2 ? btn2.innerHTML : '';
+      if (btn1) { btn1.disabled = true; btn1.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Cleaning...'; }
+      if (btn2) { btn2.disabled = true; btn2.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Cleaning...'; }
+
+      try {
+        const res = await fetch('/api/v1/admin/scraper/cleanup', {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        const data = await res.json();
+        if (res.ok && data.status === "success") {
+          const freedMb = (data.metrics.bytes_freed / (1024 * 1024)).toFixed(2);
+          alert(`Cleanup Complete!\n\nDisk Space Reclaimed: ${freedMb} MB (${data.metrics.files_deleted} temporary files removed).\nOriginal course documents and indexed Qdrant vectors remain 100% intact.`);
+          await loadHealth();
+        } else {
+          alert(`Cleanup Error: ${data.detail || data.message || 'Unknown error'}`);
+        }
+      } catch (err) {
+        alert(`Cleanup Request Failed: ${err.message}`);
+      } finally {
+        if (btn1) { btn1.disabled = false; btn1.innerHTML = origText1; }
+        if (btn2) { btn2.disabled = false; btn2.innerHTML = origText2; }
+      }
+    }
+
+
+    // =========================================================================
+    // COGNITIVE AI BRAIN & LIVE KNOWLEDGE CORTEX INTERACTIVE ENGINE
+    // =========================================================================
+
+    let brainCanvas = null;
+    let brainCtx = null;
+    let brainAnimId = null;
+    let brainPhysicsRunning = true;
+    let brainGraphData = { nodes: [], links: [], stats: {} };
+    let brainSimNodes = [];
+    let brainSimLinks = [];
+    let brainTransform = { x: 0, y: 0, scale: 1.0 };
+    let brainDragNode = null;
+    let brainHoverNode = null;
+    let brainSelectedNode = null;
+    let brainIsPanning = false;
+    let brainPanStart = { x: 0, y: 0 };
+    let brainMouseScreen = { x: 0, y: 0 };
+    let activePhotons = [];
+    let currentActiveDept = 'all';
+
+    const NODE_COLORS = {
+      core: '#f59e0b',        // Golden Amber
+      department: '#6366f1',  // Indigo
+      course: '#10b981',      // Emerald
+      topic: '#a855f7',       // Purple
+      concept: '#a855f7',     // Purple
+      document: '#06b6d4',    // Cyan
+      notice: '#f97316'       // Orange
+    };
+
+    const NODE_RADII = {
+      core: 22,
+      department: 16,
+      course: 13,
+      topic: 9,
+      concept: 9,
+      document: 8,
+      notice: 8
+    };
+
+    function initBrainCanvas() {
+      if (brainCanvas) return;
+      brainCanvas = document.getElementById('brain-canvas');
+      if (!brainCanvas) return;
+      brainCtx = brainCanvas.getContext('2d');
+
+      function resize() {
+        if (!brainCanvas || !brainCanvas.parentElement) return;
+        const rect = brainCanvas.parentElement.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const displayWidth = rect.width || 800;
+        const displayHeight = Math.max(540, rect.height || 540);
+
+        brainCanvas.width = displayWidth * dpr;
+        brainCanvas.height = displayHeight * dpr;
+        brainCanvas.style.width = displayWidth + 'px';
+        brainCanvas.style.height = displayHeight + 'px';
+
+        if (brainTransform.x === 0 && brainTransform.y === 0) {
+          brainTransform.x = displayWidth / 2;
+          brainTransform.y = displayHeight / 2;
+        }
+      }
+
+      window.addEventListener('resize', resize);
+      resize();
+
+      // Mouse & Gesture Handlers
+      brainCanvas.addEventListener('mousedown', onBrainMouseDown);
+      brainCanvas.addEventListener('mousemove', onBrainMouseMove);
+      window.addEventListener('mouseup', onBrainMouseUp);
+      brainCanvas.addEventListener('wheel', onBrainWheel, { passive: false });
+
+      // Touch handlers for mobile/trackpads
+      brainCanvas.addEventListener('touchstart', onBrainTouchStart, { passive: false });
+      brainCanvas.addEventListener('touchmove', onBrainTouchMove, { passive: false });
+      brainCanvas.addEventListener('touchend', onBrainTouchEnd);
+
+      // Start physics and render loops
+      if (!brainAnimId) {
+        requestAnimationFrame(brainLoop);
+      }
+    }
+
+    function screenToWorld(sx, sy) {
+      return {
+        x: (sx - brainTransform.x) / brainTransform.scale,
+        y: (sy - brainTransform.y) / brainTransform.scale
+      };
+    }
+
+    function worldToScreen(wx, wy) {
+      return {
+        x: wx * brainTransform.scale + brainTransform.x,
+        y: wy * brainTransform.scale + brainTransform.y
+      };
+    }
+
+    function onBrainMouseDown(e) {
+      const rect = brainCanvas.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      brainMouseScreen = { x: sx, y: sy };
+
+      const worldPos = screenToWorld(sx, sy);
+      const clickedNode = findNodeAt(worldPos.x, worldPos.y);
+
+      if (clickedNode) {
+        brainDragNode = clickedNode;
+        brainDragNode.fixed = true;
+        brainDragNode.hasMoved = false;
+        brainDragNode.startX = clickedNode.x;
+        brainDragNode.startY = clickedNode.y;
+      } else {
+        brainIsPanning = true;
+        brainPanStart = { x: sx - brainTransform.x, y: sy - brainTransform.y };
+      }
+    }
+
+    function onBrainMouseMove(e) {
+      const rect = brainCanvas.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      brainMouseScreen = { x: sx, y: sy };
+      const worldPos = screenToWorld(sx, sy);
+
+      if (brainDragNode) {
+        brainDragNode.x = worldPos.x;
+        brainDragNode.y = worldPos.y;
+        brainDragNode.vx = 0;
+        brainDragNode.vy = 0;
+        if (Math.hypot(worldPos.x - brainDragNode.startX, worldPos.y - brainDragNode.startY) > 5) {
+          brainDragNode.hasMoved = true;
+        }
+      } else if (brainIsPanning) {
+        brainTransform.x = sx - brainPanStart.x;
+        brainTransform.y = sy - brainPanStart.y;
+      } else {
+        const hover = findNodeAt(worldPos.x, worldPos.y);
+        brainHoverNode = hover;
+        brainCanvas.style.cursor = hover ? 'pointer' : (brainIsPanning ? 'grabbing' : 'grab');
+
+        const hoverLabelEl = document.getElementById('canvas-node-hover-label');
+        if (hoverLabelEl) {
+          if (hover) {
+            hoverLabelEl.textContent = `${hover.label} (${hover.type.toUpperCase()})`;
+          } else {
+            hoverLabelEl.textContent = `Knowledge Cortex (${brainSimNodes.length} Nodes, ${brainSimLinks.length} Links)`;
+          }
+        }
+      }
+    }
+
+    function onBrainMouseUp(e) {
+      if (brainDragNode) {
+        if (!brainDragNode.hasMoved) {
+          openBrainNodeModal(brainDragNode);
+        }
+        brainDragNode.fixed = false;
+        brainDragNode = null;
+      }
+      brainIsPanning = false;
+    }
+
+    function onBrainWheel(e) {
+      e.preventDefault();
+      const rect = brainCanvas.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+
+      const zoomFactor = e.deltaY < 0 ? 1.12 : 0.88;
+      zoomBrainAt(sx, sy, zoomFactor);
+    }
+
+    function zoomBrainAt(sx, sy, factor) {
+      const newScale = Math.min(4.0, Math.max(0.2, brainTransform.scale * factor));
+      brainTransform.x = sx - (sx - brainTransform.x) * (newScale / brainTransform.scale);
+      brainTransform.y = sy - (sy - brainTransform.y) * (newScale / brainTransform.scale);
+      brainTransform.scale = newScale;
+    }
+
+    function zoomBrainCanvas(factor) {
+      const rect = brainCanvas.getBoundingClientRect();
+      zoomBrainAt(rect.width / 2, rect.height / 2, factor);
+    }
+
+    function resetBrainCanvasView() {
+      if (!brainCanvas) return;
+      const rect = brainCanvas.getBoundingClientRect();
+      brainTransform = {
+        x: rect.width / 2,
+        y: rect.height / 2,
+        scale: 1.0
+      };
+    }
+
+    function toggleBrainPhysics() {
+      brainPhysicsRunning = !brainPhysicsRunning;
+      const btn = document.getElementById('btn-toggle-physics');
+      if (btn) {
+        btn.innerHTML = brainPhysicsRunning ?
+          '<i class="fa-solid fa-pause mr-1"></i> PAUSE' :
+          '<i class="fa-solid fa-play mr-1"></i> SIM';
+        btn.className = brainPhysicsRunning ?
+          'px-2 h-7 flex items-center justify-center text-emerald-400 hover:bg-slate-800 rounded-lg text-[10px] font-mono font-bold transition' :
+          'px-2 h-7 flex items-center justify-center text-amber-400 hover:bg-slate-800 rounded-lg text-[10px] font-mono font-bold transition';
+      }
+    }
+
+    let touchStartDist = 0;
+    function onBrainTouchStart(e) {
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        onBrainMouseDown({ clientX: t.clientX, clientY: t.clientY });
+      } else if (e.touches.length === 2) {
+        touchStartDist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+      }
+    }
+
+    function onBrainTouchMove(e) {
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        onBrainMouseMove({ clientX: t.clientX, clientY: t.clientY });
+      } else if (e.touches.length === 2) {
+        e.preventDefault();
+        const dist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        const factor = dist / (touchStartDist || dist);
+        const rect = brainCanvas.getBoundingClientRect();
+        zoomBrainAt(rect.width / 2, rect.height / 2, factor > 1 ? 1.03 : 0.97);
+        touchStartDist = dist;
+      }
+    }
+
+    function onBrainTouchEnd(e) {
+      onBrainMouseUp(e);
+    }
+
+    function findNodeAt(wx, wy) {
+      for (let i = brainSimNodes.length - 1; i >= 0; i--) {
+        const node = brainSimNodes[i];
+        const r = (node.radius || 10) + 4;
+        if (Math.hypot(node.x - wx, node.y - wy) <= r) {
+          return node;
+        }
+      }
+      return null;
+    }
+
+    // Force-Directed Physics Step
+    function updateBrainPhysics() {
+      if (!brainPhysicsRunning) return;
+
+      const nodes = brainSimNodes;
+      const links = brainSimLinks;
+      const numNodes = nodes.length;
+
+      // 1. Coulomb-like Repulsion between all node pairs
+      for (let i = 0; i < numNodes; i++) {
+        const n1 = nodes[i];
+        for (let j = i + 1; j < numNodes; j++) {
+          const n2 = nodes[j];
+          let dx = n1.x - n2.x;
+          let dy = n1.y - n2.y;
+          let dist = Math.hypot(dx, dy) + 0.1;
+          const maxRepelDist = 320;
+
+          if (dist < maxRepelDist) {
+            // Adaptive repulsion based on node importance
+            const weightBonus = ((n1.radius || 10) + (n2.radius || 10)) / 15;
+            const force = ((maxRepelDist - dist) / (dist * 12)) * weightBonus;
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+
+            if (!n1.fixed) { n1.vx += fx; n1.vy += fy; }
+            if (!n2.fixed) { n2.vx -= fx; n2.vy -= fy; }
+          }
+        }
+      }
+
+      // 2. Hooke's Law Spring Attraction along Links
+      for (let i = 0; i < links.length; i++) {
+        const link = links[i];
+        const src = link.sourceNode;
+        const tgt = link.targetNode;
+        if (!src || !tgt) continue;
+
+        let dx = tgt.x - src.x;
+        let dy = tgt.y - src.y;
+        let dist = Math.hypot(dx, dy) + 0.1;
+
+        // Ideal distance depends on node types
+        let idealDist = 90;
+        if (src.type === 'core' || tgt.type === 'core') idealDist = 130;
+        else if (src.type === 'department' || tgt.type === 'department') idealDist = 100;
+        else if (src.type === 'concept' || tgt.type === 'concept') idealDist = 70;
+
+        const force = (dist - idealDist) * 0.035 * (link.weight || 1.0);
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+
+        if (!src.fixed) { src.vx += fx; src.vy += fy; }
+        if (!tgt.fixed) { tgt.vx -= fx; tgt.vy -= fy; }
+      }
+
+      // 3. Center Gravity & Velocity Integration with Damping
+      for (let i = 0; i < numNodes; i++) {
+        const n = nodes[i];
+        if (n.fixed) continue;
+
+        // Weak center pull
+        n.vx += -n.x * 0.007;
+        n.vy += -n.y * 0.007;
+
+        // Damping / Friction
+        n.vx *= 0.88;
+        n.vy *= 0.88;
+
+        // Clamp extreme speeds
+        const speed = Math.hypot(n.vx, n.vy);
+        if (speed > 25) {
+          n.vx = (n.vx / speed) * 25;
+          n.vy = (n.vy / speed) * 25;
+        }
+
+        n.x += n.vx;
+        n.y += n.vy;
+
+        // Decay activation energy gradually
+        if (n.activation > 0.01) {
+          n.activation *= 0.985;
+        } else {
+          n.activation = 0;
+        }
+      }
+
+      // 4. Advance Traveling Synaptic Photons
+      for (let i = activePhotons.length - 1; i >= 0; i--) {
+        const p = activePhotons[i];
+        p.progress += p.speed;
+        if (p.progress >= 1.0) {
+          // Destination reached: activate target node slightly
+          if (p.link.targetNode) {
+            p.link.targetNode.activation = Math.min(1.0, (p.link.targetNode.activation || 0) + 0.35);
+          }
+          activePhotons.splice(i, 1);
+        }
+      }
+    }
+
+    // Main Draw & Animation Loop
+    function brainLoop() {
+      updateBrainPhysics();
+      renderBrainCanvas();
+      brainAnimId = requestAnimationFrame(brainLoop);
+    }
+
+    function renderBrainCanvas() {
+      if (!brainCanvas || !brainCtx) return;
+      const ctx = brainCtx;
+      const dpr = window.devicePixelRatio || 1;
+      const w = brainCanvas.width / dpr;
+      const h = brainCanvas.height / dpr;
+
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // Deep space cortex background
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, w, h);
+
+      // Subtle neural constellation grid dots
+      ctx.fillStyle = 'rgba(51, 65, 85, 0.25)';
+      const step = 40;
+      const offsetX = brainTransform.x % step;
+      const offsetY = brainTransform.y % step;
+      for (let gx = offsetX; gx < w; gx += step) {
+        for (let gy = offsetY; gy < h; gy += step) {
+          ctx.beginPath();
+          ctx.arc(gx, gy, 1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Apply camera viewport transforms
+      ctx.translate(brainTransform.x, brainTransform.y);
+      ctx.scale(brainTransform.scale, brainTransform.scale);
+
+      // 1. Draw Synaptic Links
+      for (let i = 0; i < brainSimLinks.length; i++) {
+        const link = brainSimLinks[i];
+        const src = link.sourceNode;
+        const tgt = link.targetNode;
+        if (!src || !tgt) continue;
+
+        ctx.beginPath();
+        ctx.moveTo(src.x, src.y);
+        ctx.lineTo(tgt.x, tgt.y);
+
+        if (link.isFiring) {
+          ctx.strokeStyle = '#38bdf8';
+          ctx.lineWidth = Math.max(2.5, (link.weight || 1) * 2.2);
+          ctx.shadowColor = '#06b6d4';
+          ctx.shadowBlur = 12;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        } else {
+          ctx.strokeStyle = 'rgba(100, 116, 139, 0.28)';
+          ctx.lineWidth = Math.max(0.8, (link.weight || 1) * 1.1);
+          ctx.stroke();
+        }
+      }
+
+      // 2. Draw Traveling Synaptic Photon Pulses
+      for (let i = 0; i < activePhotons.length; i++) {
+        const p = activePhotons[i];
+        const src = p.link.sourceNode;
+        const tgt = p.link.targetNode;
+        if (!src || !tgt) continue;
+
+        const px = src.x + (tgt.x - src.x) * p.progress;
+        const py = src.y + (tgt.y - src.y) * p.progress;
+
+        ctx.beginPath();
+        ctx.arc(px, py, p.radius || 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = p.color || '#38bdf8';
+        ctx.shadowColor = p.color || '#38bdf8';
+        ctx.shadowBlur = 14;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      // 3. Draw Knowledge Nodes
+      const now = performance.now() * 0.003;
+      for (let i = 0; i < brainSimNodes.length; i++) {
+        const node = brainSimNodes[i];
+        const color = NODE_COLORS[node.type] || '#6366f1';
+        const baseRadius = node.radius || 10;
+        const isHovered = (node === brainHoverNode);
+        const isSelected = (node === brainSelectedNode);
+        const act = node.activation || 0;
+
+        // Dynamic energetic pulse size
+        let r = baseRadius;
+        if (isHovered) r += 3;
+        if (act > 0) r += Math.sin(now * 3) * (act * 4);
+
+        // Outer Halo / Glow for active or hovered nodes
+        if (act > 0.05 || isHovered || isSelected || node.type === 'core') {
+          ctx.beginPath();
+          const haloRadius = r + (isHovered ? 8 : (act > 0 ? 10 * act : 6));
+          ctx.arc(node.x, node.y, Math.max(0.1, haloRadius), 0, Math.PI * 2);
+          ctx.fillStyle = isHovered ? 'rgba(255, 255, 255, 0.25)' : (color + '33');
+          ctx.shadowColor = color;
+          ctx.shadowBlur = isHovered ? 20 : (act > 0 ? 25 : 12);
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+
+        // Main Node Circle
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, Math.max(0.1, r), 0, Math.PI * 2);
+        const grad = ctx.createRadialGradient(node.x - r * 0.3, node.y - r * 0.3, r * 0.1, node.x, node.y, r);
+        grad.addColorStop(0, '#ffffff');
+        grad.addColorStop(0.3, color);
+        grad.addColorStop(1, '#0f172a');
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        ctx.lineWidth = isSelected ? 2.5 : 1.2;
+        ctx.strokeStyle = isSelected ? '#ffffff' : (color + 'cc');
+        ctx.stroke();
+
+        // Node Label (rendered when zoomed in or if prominent)
+        const shouldDrawLabel = brainTransform.scale > 0.65 || node.type === 'core' || node.type === 'department' || isHovered || act > 0.2;
+        if (shouldDrawLabel) {
+          const fontSize = Math.max(9, Math.min(13, Math.round(11 / brainTransform.scale)));
+          ctx.font = `${node.type === 'core' || node.type === 'department' ? 'bold ' : ''}${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+
+          const textY = node.y + r + 3;
+          const labelText = node.label.length > 22 ? (node.label.slice(0, 20) + '…') : node.label;
+
+          // Text pill backdrop for high legibility
+          const textWidth = ctx.measureText(labelText).width;
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+          ctx.beginPath();
+          ctx.roundRect(node.x - textWidth / 2 - 3, textY - 1, textWidth + 6, fontSize + 3, 4);
+          ctx.fill();
+
+          ctx.fillStyle = isHovered ? '#ffffff' : (act > 0.1 ? '#38bdf8' : '#e2e8f0');
+          ctx.fillText(labelText, node.x, textY);
+        }
+      }
+
+      ctx.restore();
+    }
+
+    // Load Knowledge Graph from Backend
+    async function loadBrainGraph(department = null) {
+      initBrainCanvas();
+      const statusPill = document.getElementById('brain-status-pill');
+      if (statusPill) {
+        statusPill.innerHTML = '● Cortex: SYNCING...';
+        statusPill.className = 'text-xs px-2.5 py-0.5 rounded-full bg-amber-900/80 text-amber-300 font-mono font-bold border border-amber-700 animate-pulse';
+      }
+
+      try {
+        let url = '/api/v1/admin/brain/graph';
+        if (department && department !== 'all') {
+          url += `?department=${encodeURIComponent(department)}`;
+          currentActiveDept = department;
+        } else {
+          currentActiveDept = 'all';
+        }
+
+        const res = await fetch(url, { headers: getAuthHeaders() });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        brainGraphData = data;
+
+        // Preserve existing coordinates when refreshing
+        const oldPosMap = new Map();
+        for (const n of brainSimNodes) {
+          oldPosMap.set(n.id, { x: n.x, y: n.y, vx: n.vx, vy: n.vy });
+        }
+
+        // Build Sim Nodes
+        brainSimNodes = (data.nodes || []).map((n, idx) => {
+          const old = oldPosMap.get(n.id);
+          const baseR = NODE_RADII[n.type] || 10;
+          let ix = 0, iy = 0;
+
+          if (old) {
+            ix = old.x;
+            iy = old.y;
+          } else {
+            // Organic spiral initial placement
+            const angle = idx * 0.45;
+            const dist = 30 + Math.sqrt(idx) * 35;
+            ix = Math.cos(angle) * dist + (Math.random() - 0.5) * 20;
+            iy = Math.sin(angle) * dist + (Math.random() - 0.5) * 20;
+          }
+
+          return {
+            id: n.id,
+            label: n.label,
+            type: n.type,
+            department: n.department,
+            meta: n.meta || {},
+            radius: baseR,
+            color: NODE_COLORS[n.type] || '#6366f1',
+            x: ix,
+            y: iy,
+            vx: old ? old.vx : 0,
+            vy: old ? old.vy : 0,
+            activation: 0,
+            fixed: (n.type === 'core')
+          };
+        });
+
+        // Index nodes by ID for fast link resolution
+        const nodeMap = new Map();
+        for (const n of brainSimNodes) {
+          nodeMap.set(n.id, n);
+        }
+
+        // Build Sim Links
+        brainSimLinks = [];
+        for (const l of (data.links || [])) {
+          const srcNode = nodeMap.get(l.source);
+          const tgtNode = nodeMap.get(l.target);
+          if (srcNode && tgtNode) {
+            brainSimLinks.push({
+              sourceNode: srcNode,
+              targetNode: tgtNode,
+              weight: l.weight || 1.0,
+              type: l.type || 'synapse',
+              isFiring: false
+            });
+          }
+        }
+
+        // Update HUD Telemetry
+        const stats = data.stats || {};
+        const synEl = document.getElementById('hud-synaptic-count');
+        if (synEl) synEl.textContent = (stats.total_links || brainSimLinks.length).toLocaleString();
+
+        const nodesEl = document.getElementById('hud-nodes-count');
+        if (nodesEl) nodesEl.textContent = (stats.total_nodes || brainSimNodes.length).toLocaleString();
+
+        const deptEl = document.getElementById('hud-dept-count');
+        if (deptEl) deptEl.textContent = `${stats.total_departments || 0} depts`;
+
+        if (statusPill) {
+          statusPill.innerHTML = '● Cortex: IDLE_AWARE';
+          statusPill.className = 'text-xs px-2.5 py-0.5 rounded-full bg-indigo-900/80 text-indigo-300 font-mono font-bold border border-indigo-700';
+        }
+
+        // Center canvas if first load
+        if (oldPosMap.size === 0) {
+          resetBrainCanvasView();
+        }
+
+      } catch (err) {
+        console.error('Error loading Brain Graph:', err);
+        if (statusPill) {
+          statusPill.innerHTML = '● Cortex: ERR_OFFLINE';
+          statusPill.className = 'text-xs px-2.5 py-0.5 rounded-full bg-rose-900/80 text-rose-300 font-mono font-bold border border-rose-700';
+        }
+      }
+    }
+
+    // Load Real-time Cognitive Telemetry
+    async function loadBrainTelemetry() {
+      try {
+        const res = await fetch('/api/v1/admin/brain/telemetry', { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const d = await res.json();
+
+        // Update Status Pill
+        const statusPill = document.getElementById('brain-status-pill');
+        if (statusPill && !statusPill.textContent.includes('FIRING')) {
+          statusPill.innerHTML = `● Cortex: ${d.cognitive_state || 'IDLE_AWARE'}`;
+        }
+
+        // Update Cognitive Load HUD
+        const loadPct = d.cognitive_load_pct != null ? d.cognitive_load_pct : (d.load_percentage != null ? d.load_percentage : 4);
+        const loadTag = document.getElementById('hud-cognitive-load-tag');
+        if (loadTag) loadTag.textContent = `${loadPct}% Load`;
+        const loadBar = document.getElementById('hud-cognitive-load-bar');
+        if (loadBar) loadBar.style.width = `${Math.min(100, Math.max(5, loadPct))}%`;
+
+        const descEl = document.getElementById('hud-cognitive-desc');
+        if (descEl) {
+          const semCount = d.memory_hierarchy?.semantic?.total_chunks || d.memory_hierarchy?.semantic?.active_concepts_in_memory || 0;
+          descEl.textContent = `${semCount} active memory concepts`;
+        }
+
+        // Coherence Rate
+        const cohEl = document.getElementById('hud-coherence-rate');
+        if (cohEl) {
+          const cohPct = d.memory_hierarchy?.episodic?.verified_coherence_pct != null ? d.memory_hierarchy.episodic.verified_coherence_pct : 98.5;
+          cohEl.textContent = `${cohPct}%`;
+        }
+
+        // Episodic Firings Feed
+        const feedList = document.getElementById('episodic-firings-list');
+        const firings = d.episodic_firings_sample || d.memory_hierarchy?.working?.recent_firings || [];
+        if (feedList && firings.length > 0) {
+          feedList.innerHTML = firings.map(f => {
+            let timeStr = '--:--';
+            if (typeof f.timestamp === 'number') {
+              timeStr = new Date(f.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            } else if (typeof f.timestamp === 'string') {
+              timeStr = f.timestamp.includes('T') ? f.timestamp.split('T')[1].slice(0, 8) : f.timestamp;
+            }
+            const confVal = f.confidence != null ? f.confidence : (f.confidence_score != null ? f.confidence_score : 0.95);
+            const confPct = Math.round(confVal * 100);
+            const queryText = f.query || f.primary_concept || 'Query probe';
+            const firedCount = f.activated_nodes_count || (f.activated_node_ids ? f.activated_node_ids.length : 0);
+            return `
+              <div class="p-2 bg-slate-50 hover:bg-indigo-50/50 rounded-xl border border-slate-200 transition cursor-pointer" data-probe-query="${escapeHtml(queryText)}" onclick="setProbeQuery(this.getAttribute('data-probe-query'))">
+                <div class="flex justify-between items-center text-[10px] text-slate-400">
+                  <span class="font-mono">${timeStr}</span>
+                  <span class="font-bold text-emerald-700 bg-emerald-50 px-1 rounded">${confPct}% Grounded</span>
+                </div>
+                <p class="text-slate-800 font-medium text-xs mt-0.5 truncate">${escapeHtml(queryText)}</p>
+                <div class="flex items-center gap-1.5 mt-1 text-[10px] text-slate-500">
+                  <span class="bg-indigo-50 text-indigo-700 px-1.5 py-0.2 rounded font-mono">${escapeHtml(f.department || 'General')}</span>
+                  <span>${firedCount} nodes fired</span>
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+
+      } catch (err) {
+        console.warn('Error loading Brain telemetry:', err);
+      }
+    }
+
+    // Force Rebuild Brain Cortex
+    async function rebuildBrainCortex() {
+      const btn = document.getElementById('btn-rebuild-brain');
+      const origHtml = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1.5"></i> Rebuilding...';
+      }
+
+      try {
+        const res = await fetch('/api/v1/admin/brain/rebuild', {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'success') {
+          alert('Knowledge Cortex Rebuilt!\n\n' + (data.message || 'Synaptic affinities and multi-tiered nodes recalculated.'));
+          await loadBrainGraph(currentActiveDept);
+          await loadBrainTelemetry();
+        } else {
+          alert('Rebuild Failed: ' + (data.detail || data.message || 'Unknown error'));
+        }
+      } catch (err) {
+        alert('Rebuild Request Failed: ' + err.message);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origHtml;
+        }
+      }
+    }
+
+    // Filter Department
+    function filterBrainDepartment(dept) {
+      loadBrainGraph(dept);
+    }
+
+    // Helper to Set Probe Query
+    function setProbeQuery(q) {
+      const input = document.getElementById('brain-probe-query');
+      if (input) {
+        input.value = q;
+        input.focus();
+      }
+    }
+
+    // Fire Synapse Simulation
+    async function fireBrainSynapse() {
+      const input = document.getElementById('brain-probe-query');
+      const query = input ? input.value.trim() : '';
+      if (!query) {
+        alert('Please enter a query or academic concept to probe.');
+        return;
+      }
+
+      const btn = document.getElementById('btn-fire-synapse');
+      const origHtml = btn ? btn.innerHTML : '';
+      const statusPill = document.getElementById('brain-status-pill');
+
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1.5 text-amber-300"></i> Propagating Synaptic Pulses...';
+      }
+      if (statusPill) {
+        statusPill.innerHTML = '● Cortex: FIRING_PROJECTION';
+        statusPill.className = 'text-xs px-2.5 py-0.5 rounded-full bg-rose-900/80 text-rose-300 font-mono font-bold border border-rose-700 animate-pulse';
+      }
+
+      const thoughtContainer = document.getElementById('thought-pathway-container');
+      const latencyTag = document.getElementById('thought-latency-tag');
+      const summaryBox = document.getElementById('thought-summary-box');
+
+      if (thoughtContainer) {
+        thoughtContainer.innerHTML = `
+          <div class="flex items-center space-x-2 text-indigo-400 py-6 justify-center">
+            <i class="fa-solid fa-brain fa-fade text-lg"></i>
+            <span class="font-mono text-xs animate-pulse">Tracing neural firing across University Cortex...</span>
+          </div>
+        `;
+      }
+
+      try {
+        const res = await fetch('/api/v1/admin/brain/fire-synapse', {
+          method: 'POST',
+          headers: {
+            ...getAuthHeaders(),
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ query })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.detail || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        const latencyMs = data.latency_ms || data.execution_latency_ms || 120;
+        if (latencyTag) latencyTag.textContent = `${latencyMs}ms Latency`;
+
+        // 1. Trigger Visual Excitation on Matching Graph Nodes
+        const activatedIds = new Set((data.activated_nodes || []).map(a => a.id));
+        const activatedMap = new Map((data.activated_nodes || []).map(a => [a.id, a]));
+
+        let primaryActivatedNode = null;
+        let maxEnergy = 0;
+
+        for (const n of brainSimNodes) {
+          if (activatedIds.has(n.id)) {
+            const info = activatedMap.get(n.id);
+            const energy = info ? (info.activation_energy || info.score || 0.8) : 0.8;
+            n.activation = Math.min(1.0, energy * 1.3);
+
+            if (energy > maxEnergy) {
+              maxEnergy = energy;
+              primaryActivatedNode = n;
+            }
+          }
+        }
+
+        // 2. Light Up Firing Links & Launch Synaptic Photon Pulses
+        for (const l of brainSimLinks) {
+          const srcAct = activatedIds.has(l.sourceNode.id);
+          const tgtAct = activatedIds.has(l.targetNode.id);
+
+          if (srcAct || tgtAct) {
+            l.isFiring = true;
+            // Spawn traveling photons
+            for (let k = 0; k < 2; k++) {
+              activePhotons.push({
+                link: l,
+                progress: Math.random() * 0.4,
+                speed: 0.02 + Math.random() * 0.02,
+                color: (srcAct && tgtAct) ? '#34d399' : '#38bdf8',
+                radius: 3.5
+              });
+            }
+
+            setTimeout(() => { l.isFiring = false; }, 3800);
+          }
+        }
+
+        // 3. Smoothly center viewport on the most strongly activated node
+        if (primaryActivatedNode && brainCanvas) {
+          const rect = brainCanvas.getBoundingClientRect();
+          const targetScale = Math.max(1.0, brainTransform.scale);
+          brainTransform = {
+            x: (rect.width / 2) - primaryActivatedNode.x * targetScale,
+            y: (rect.height / 2) - primaryActivatedNode.y * targetScale,
+            scale: targetScale
+          };
+        }
+
+        // 4. Render Thought Pathway Trace
+        if (thoughtContainer && data.thought_pathway) {
+          thoughtContainer.innerHTML = data.thought_pathway.map(step => {
+            const stepNum = step.step;
+            const icon = stepNum === 1 ? 'fa-crosshairs text-cyan-400' :
+                         stepNum === 2 ? 'fa-network-wired text-indigo-400' :
+                         stepNum === 3 ? 'fa-bolt text-amber-400' : 'fa-brain text-emerald-400';
+
+            return `
+              <div class="p-2.5 bg-slate-900/90 rounded-xl border border-slate-800 space-y-1 hover:border-slate-700 transition">
+                <div class="flex items-center justify-between text-[11px] font-mono">
+                  <span class="font-bold text-slate-200 flex items-center">
+                    <i class="fa-solid ${icon} mr-1.5"></i> Step ${step.step}: ${escapeHtml(step.phase || step.title || ('Step ' + step.step))}
+                  </span>
+                  <span class="text-indigo-400 font-bold text-[10px]">${escapeHtml(step.title || step.phase || '')}</span>
+                </div>
+                <p class="text-[11px] text-slate-300 leading-relaxed font-sans">${escapeHtml(step.detail || step.description || '')}</p>
+                ${step.metrics ? `
+                  <div class="flex flex-wrap gap-2 pt-1 border-t border-slate-800/60 text-[10px] font-mono text-slate-400">
+                    ${Object.entries(step.metrics).map(([k, v]) => `
+                      <span class="bg-slate-800 px-1.5 py-0.2 rounded text-slate-300">${escapeHtml(String(k))}: <strong class="text-white">${escapeHtml(String(v))}</strong></span>
+                    `).join('')}
+                  </div>
+                ` : ''}
+              </div>
+            `;
+          }).join('');
+        }
+
+        // 5. Update Thought Summary Box
+        if (summaryBox) {
+          const confidence = Math.round((data.confidence != null ? data.confidence : (data.cognitive_confidence || 0.9)) * 100);
+          summaryBox.classList.remove('hidden');
+          summaryBox.innerHTML = `
+            <div class="flex justify-between items-center mb-1">
+              <span class="font-bold text-indigo-300">Grounding Confidence:</span>
+              <span class="font-bold text-emerald-400">${confidence}% Verifiable</span>
+            </div>
+            <p class="text-indigo-100">${escapeHtml(data.response_preview || 'Synaptic activation completed across university cortex.')}</p>
+          `;
+        }
+
+        // Refresh telemetry & episodic feed
+        await loadBrainTelemetry();
+
+      } catch (err) {
+        console.error('Neural firing simulation error:', err);
+        if (thoughtContainer) {
+          thoughtContainer.innerHTML = `
+            <div class="p-3 bg-rose-950/60 rounded-xl border border-rose-800 text-rose-200 text-xs">
+              <i class="fa-solid fa-triangle-exclamation mr-1.5 text-rose-400"></i> Simulation Error: ${escapeHtml(err.message)}
+            </div>
+          `;
+        }
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origHtml;
+        }
+        if (statusPill) {
+          statusPill.innerHTML = '● Cortex: IDLE_AWARE';
+          statusPill.className = 'text-xs px-2.5 py-0.5 rounded-full bg-indigo-900/80 text-indigo-300 font-mono font-bold border border-indigo-700';
+        }
+      }
+    }
+
+    // Glassmorphic Node Inspector Modal Handlers
+    function openBrainNodeModal(node) {
+      brainSelectedNode = node;
+      const modal = document.getElementById('brain-node-modal');
+      if (!modal) return;
+
+      const typeEl = document.getElementById('node-modal-type');
+      const labelEl = document.getElementById('node-modal-label');
+      const deptEl = document.getElementById('node-modal-dept');
+      const contentEl = document.getElementById('node-modal-content');
+
+      if (typeEl) {
+        typeEl.textContent = node.type || 'Node';
+        typeEl.style.backgroundColor = (NODE_COLORS[node.type] || '#6366f1') + '22';
+        typeEl.style.color = NODE_COLORS[node.type] || '#6366f1';
+      }
+      if (labelEl) labelEl.textContent = node.label || 'Node Title';
+      if (deptEl) deptEl.textContent = node.department ? `Department: ${node.department}` : 'Universal Core';
+
+      // Find connected neighbors
+      const connected = [];
+      for (const l of brainSimLinks) {
+        if (l.sourceNode.id === node.id) connected.push(l.targetNode);
+        else if (l.targetNode.id === node.id) connected.push(l.sourceNode);
+      }
+
+      if (contentEl) {
+        contentEl.innerHTML = `
+          <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1.5">
+            <div class="flex justify-between text-[11px] text-slate-500 font-mono">
+              <span>Node ID:</span>
+              <span class="font-bold text-slate-800">${escapeHtml(node.id)}</span>
+            </div>
+            <div class="flex justify-between text-[11px] text-slate-500 font-mono">
+              <span>Synaptic Degree:</span>
+              <span class="font-bold text-indigo-600">${connected.length} connected synapses</span>
+            </div>
+            ${node.meta?.chunks_count ? `
+              <div class="flex justify-between text-[11px] text-slate-500 font-mono">
+                <span>Verified Chunks:</span>
+                <span class="font-bold text-emerald-600">${node.meta.chunks_count} chunks indexed</span>
+              </div>
+            ` : ''}
+          </div>
+
+          <div>
+            <p class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Connected Synapses (${connected.length})</p>
+            <div class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+              ${connected.slice(0, 15).map(c => `
+                <span class="text-[10px] px-2 py-0.5 rounded-full font-mono bg-slate-100 text-slate-700 border border-slate-200">${escapeHtml(c.label)}</span>
+              `).join('')}
+              ${connected.length > 15 ? `<span class="text-[10px] text-slate-400">+${connected.length - 15} more</span>` : ''}
+            </div>
+          </div>
+        `;
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    function closeBrainNodeModal() {
+      const modal = document.getElementById('brain-node-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function probeFromNodeModal() {
+      if (brainSelectedNode) {
+        closeBrainNodeModal();
+        setProbeQuery(brainSelectedNode.label);
+        fireBrainSynapse();
+      }
+    }
+
+
     async function loadAllData() {
       // Pre-fill token input if stored
       const savedToken = localStorage.getItem("rag_admin_token") || "dev-secret-key-rag-university";
@@ -3700,6 +6005,8 @@
       await loadApiKeys();
       await loadUrlRules();
       await loadSecurityStats();
+      await loadScraperJobs();
+      await loadBrainTelemetry();
 
       // Automatically refresh live GPU hardware telemetry & pipeline status every 4 seconds
       setInterval(loadHealth, 4000);

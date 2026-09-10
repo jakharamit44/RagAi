@@ -29,6 +29,8 @@ def clean_rag_answer(text: str) -> str:
     # Clean multiple spaces and whitespace before punctuation
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\s+([.,;:!?])", r"\1", text)
+    # Deduplicate repetitive phrase loops
+    text = re.sub(r"(\b[\w\u0900-\u097F]{2,}\b(?:\s+[\w\u0900-\u097F]{2,}\b){0,4})(?:\s+\1){2,}", r"\1", text)
     if text and text[0].islower():
         text = text[0].upper() + text[1:]
     return text.strip()
@@ -74,27 +76,51 @@ class LocalChatGenerator:
                     self._tokenizer = AutoTokenizer.from_pretrained(target_dir, local_files_only=True)
                     
                     if device == "cuda":
-                        try:
-                            self._model = AutoModelForCausalLM.from_pretrained(
-                                target_dir,
-                                dtype=torch.float16,
-                                device_map="cuda",
-                                attn_implementation="sdpa",
-                                local_files_only=True,
-                            )
-                            logger.info("LocalChatGenerator: Hardware-accelerated SDPA attention enabled.")
-                        except Exception as sdpa_err:
-                            logger.info(f"SDPA not enabled ({sdpa_err}), falling back to standard attention.")
-                            self._model = AutoModelForCausalLM.from_pretrained(
-                                target_dir,
-                                dtype=torch.float16,
-                                device_map="cuda",
-                                local_files_only=True,
-                            )
+                        loaded = False
+                        if getattr(settings, "ENABLE_4BIT_QUANTIZATION", True):
+                            try:
+                                from transformers import BitsAndBytesConfig
+                                bnb_config = BitsAndBytesConfig(
+                                    load_in_4bit=True,
+                                    bnb_4bit_quant_type="nf4",
+                                    bnb_4bit_use_double_quant=True,
+                                    bnb_4bit_compute_dtype=torch.float16,
+                                )
+                                self._model = AutoModelForCausalLM.from_pretrained(
+                                    target_dir,
+                                    quantization_config=bnb_config,
+                                    device_map="cuda",
+                                    torch_dtype=torch.float16,
+                                    attn_implementation="sdpa",
+                                    local_files_only=True,
+                                )
+                                loaded = True
+                                logger.info("LocalChatGenerator: 4-bit NF4 quantization enabled (VRAM ~1.85 GB).")
+                            except Exception as bnb_err:
+                                logger.warning(f"4-bit quantization fallback ({bnb_err}). Loading in FP16...")
+
+                        if not loaded:
+                            try:
+                                self._model = AutoModelForCausalLM.from_pretrained(
+                                    target_dir,
+                                    torch_dtype=torch.float16,
+                                    device_map="cuda",
+                                    attn_implementation="sdpa",
+                                    local_files_only=True,
+                                )
+                                logger.info("LocalChatGenerator: Hardware-accelerated SDPA attention enabled (FP16).")
+                            except Exception as sdpa_err:
+                                logger.info(f"SDPA not enabled ({sdpa_err}), falling back to standard attention (FP16).")
+                                self._model = AutoModelForCausalLM.from_pretrained(
+                                    target_dir,
+                                    torch_dtype=torch.float16,
+                                    device_map="cuda",
+                                    local_files_only=True,
+                                )
                     else:
                         self._model = AutoModelForCausalLM.from_pretrained(
                             target_dir,
-                            dtype=torch.float32,
+                            torch_dtype=torch.float32,
                             local_files_only=True,
                         ).to("cpu")
 
@@ -159,35 +185,31 @@ class LocalChatGenerator:
 
         import torch
         from api.core.gpu_lock import gpu_lock
+        inputs = None
+        outputs = None
+        generated_ids = None
+        import gc
         try:
             with gpu_lock:
                 inputs = tokenizer([prompt_text], return_tensors="pt").to(model.device)
+                is_sampling = temperature > 0.05
+                generation_kwargs = dict(
+                    **inputs,
+                    max_new_tokens=effective_tokens,
+                    temperature=temperature if is_sampling else None,
+                    do_sample=is_sampling,
+                    top_p=0.9 if is_sampling else None,
+                    repetition_penalty=1.1,
+                    use_cache=True,
+                    pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
+                    eos_token_id=tokenizer.eos_token_id,
+                )
                 with torch.inference_mode():
                     if torch.cuda.is_available():
                         with torch.amp.autocast("cuda", dtype=torch.float16):
-                            outputs = model.generate(
-                                **inputs,
-                                max_new_tokens=effective_tokens,
-                                temperature=temperature if temperature > 0.0 else None,
-                                do_sample=temperature > 0.0,
-                                top_p=0.9 if temperature > 0.0 else None,
-                                repetition_penalty=1.1,
-                                use_cache=True,
-                                pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
-                                eos_token_id=tokenizer.eos_token_id,
-                            )
+                            outputs = model.generate(**generation_kwargs)
                     else:
-                        outputs = model.generate(
-                            **inputs,
-                            max_new_tokens=effective_tokens,
-                            temperature=temperature if temperature > 0.0 else None,
-                            do_sample=temperature > 0.0,
-                            top_p=0.9 if temperature > 0.0 else None,
-                            repetition_penalty=1.1,
-                            use_cache=True,
-                            pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
-                            eos_token_id=tokenizer.eos_token_id,
-                        )
+                        outputs = model.generate(**generation_kwargs)
                 # Slice off input tokens to get newly generated response
                 generated_ids = outputs[0][len(inputs.input_ids[0]):].detach().cpu()
                 if torch.cuda.is_available():
@@ -198,8 +220,16 @@ class LocalChatGenerator:
         except Exception as gen_err:
             if "out of memory" in str(gen_err).lower():
                 logger.error("CUDA OOM detected during generation, releasing memory cache...")
-                torch.cuda.empty_cache()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             raise gen_err
+        finally:
+            del inputs
+            del outputs
+            del generated_ids
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
 
     async def generate_rag_answer(
         self,
@@ -231,28 +261,27 @@ class LocalChatGenerator:
         cur_time_str = now.strftime("%I:%M %p")
         cur_year = now.year
 
+        from .self_improver import PromptRuleManager
+        dynamic_rules = PromptRuleManager.get_rules()
+        rules_text = "\n".join([f"{idx+1}. {r.replace('{cur_date_str}', cur_date_str)}" for idx, r in enumerate(dynamic_rules)])
+
         system_instruction = (
             "You are the official AI Academic Assistant developed for Maharshi Dayanand University (MDU), Rohtak.\n"
             f"CURRENT REAL-TIME DATE & TIME: {cur_date_str} at {cur_time_str} (Academic Session: {cur_year}-{cur_year+1}).\n\n"
             "Your role is to assist students, researchers, and faculty by providing helpful, polite, and accurate information "
             "strictly grounded in verified university documents, course syllabi, and official minutes.\n\n"
-            "RULES:\n"
-            "1. Base your factual academic answers ONLY on the verified context below. Do not hallucinate or invent facts.\n"
-            f"2. TEMPORAL & RECENCY AWARENESS: Today's date is {cur_date_str}. Use this date to evaluate current academic status, upcoming vs past events, and whether deadlines have passed or been extended. When multiple notices exist, prioritize the latest extension notices, updated circulars, and current session guidelines.\n"
-            "3. If the user greets you or includes conversational courtesies (like 'hi', 'hello', 'how are you'), respond warmly and politely as the MDU Rohtak AI Academic Assistant.\n"
-            "4. If the user asks who you are or who developed you, clearly identify yourself as the official AI Academic Assistant developed for Maharshi Dayanand University (MDU), Rohtak.\n"
-            "5. State key academic facts directly and clearly (dates, meeting numbers, course codes, exam schedules, rules).\n"
-            "6. Do NOT include bracketed source tags, citation numbers, or markdown links like '[Source 1]', '[Source 1](...)', or '(Page X)' in your response text. Source citations and document badges are already displayed automatically by the user interface below your answer.\n"
-            "7. If the context does not contain sufficient information to answer an academic question, state politely:\n"
-            "'I do not have sufficient verified course material to answer this question. Please refer to your faculty or syllabus.'\n"
-            "8. Never mention internal software development plans, requirements planning, document ingestion pipelines, administrative dashboards, or technical code to the user. You are an academic assistant communicating with university students.\n"
-            "9. When asked about university admissions, summarize the verified guidelines, programs, submission deadlines, and official portal (www.mdu.ac.in) found in the documents.\n"
-            "10. Provide a complete, fully formed answer. Always finish your thoughts, sentences, and lists cleanly without cutting off abruptly."
+            f"RULES:\n{rules_text}"
         )
+
+        from api.core.conversational import is_hindi_or_hinglish
+        if is_hindi_or_hinglish(question):
+            lang_instruction = "\n\nCRITICAL LANGUAGE INSTRUCTION: The student asked in Hindi or Hinglish. Answer in polite, natural Hindi or Hinglish matching the student's language."
+        else:
+            lang_instruction = "\n\nCRITICAL LANGUAGE INSTRUCTION: The student asked in English. Answer in clear, polite English."
 
         user_content = (
             f"<untrusted_academic_context>\n{context_block}\n</untrusted_academic_context>\n\n"
-            f"Question: {question}\n\nAnswer:"
+            f"Question: {question}{lang_instruction}\n\nAnswer:"
         )
 
         messages = [
@@ -318,17 +347,19 @@ class LocalChatGenerator:
         loop = asyncio.get_running_loop()
 
         def _generate_worker():
+            inputs = None
             try:
                 from api.core.gpu_lock import gpu_lock
                 with gpu_lock:
                     inputs = tokenizer([prompt_text], return_tensors="pt").to(model.device)
+                    is_sampling = temperature > 0.05
                     generation_kwargs = dict(
                         **inputs,
                         streamer=streamer,
                         max_new_tokens=effective_tokens,
-                        temperature=temperature if temperature > 0.0 else None,
-                        do_sample=temperature > 0.0,
-                        top_p=0.9 if temperature > 0.0 else None,
+                        temperature=temperature if is_sampling else None,
+                        do_sample=is_sampling,
+                        top_p=0.9 if is_sampling else None,
                         repetition_penalty=1.1,
                         use_cache=True,
                         pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
@@ -344,6 +375,13 @@ class LocalChatGenerator:
                         torch.cuda.synchronize()
             except Exception as e:
                 loop.call_soon_threadsafe(async_queue.put_nowait, e)
+            finally:
+                if inputs is not None:
+                    del inputs
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                import gc
+                gc.collect()
 
         def _feeder_worker():
             try:
@@ -370,6 +408,10 @@ class LocalChatGenerator:
         finally:
             gen_thread.join(timeout=1.0)
             feed_thread.join(timeout=1.0)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            import gc
+            gc.collect()
 
     async def generate_rag_stream(
         self,
@@ -397,28 +439,27 @@ class LocalChatGenerator:
         cur_time_str = now.strftime("%I:%M %p")
         cur_year = now.year
 
+        from .self_improver import PromptRuleManager
+        dynamic_rules = PromptRuleManager.get_rules()
+        rules_text = "\n".join([f"{idx+1}. {r.replace('{cur_date_str}', cur_date_str)}" for idx, r in enumerate(dynamic_rules)])
+
         system_instruction = (
             "You are the official AI Academic Assistant developed for Maharshi Dayanand University (MDU), Rohtak.\n"
             f"CURRENT REAL-TIME DATE & TIME: {cur_date_str} at {cur_time_str} (Academic Session: {cur_year}-{cur_year+1}).\n\n"
             "Your role is to assist students, researchers, and faculty by providing helpful, polite, and accurate information "
             "strictly grounded in verified university documents, course syllabi, and official minutes.\n\n"
-            "RULES:\n"
-            "1. Base your factual academic answers ONLY on the verified context below. Do not hallucinate or invent facts.\n"
-            f"2. TEMPORAL & RECENCY AWARENESS: Today's date is {cur_date_str}. Use this date to evaluate current academic status, upcoming vs past events, and whether deadlines have passed or been extended. When multiple notices exist, prioritize the latest extension notices, updated circulars, and current session guidelines.\n"
-            "3. If the user greets you or includes conversational courtesies (like 'hi', 'hello', 'how are you'), respond warmly and politely as the MDU Rohtak AI Academic Assistant.\n"
-            "4. If the user asks who you are or who developed you, clearly identify yourself as the official AI Academic Assistant developed for Maharshi Dayanand University (MDU), Rohtak.\n"
-            "5. State key academic facts directly and clearly (dates, meeting numbers, course codes, exam schedules, rules).\n"
-            "6. Do NOT include bracketed source tags, citation numbers, or markdown links like '[Source 1]', '[Source 1](...)', or '(Page X)' in your response text. Source citations and document badges are already displayed automatically by the user interface below your answer.\n"
-            "7. If the context does not contain sufficient information to answer an academic question, state politely:\n"
-            "'I do not have sufficient verified course material to answer this question. Please refer to your faculty or syllabus.'\n"
-            "8. Never mention internal software development plans, requirements planning, document ingestion pipelines, administrative dashboards, or technical code to the user. You are an academic assistant communicating with university students.\n"
-            "9. When asked about university admissions, summarize the verified guidelines, programs, submission deadlines, and official portal (www.mdu.ac.in) found in the documents.\n"
-            "10. Provide a complete, fully formed answer. Always finish your thoughts, sentences, and lists cleanly without cutting off abruptly."
+            f"RULES:\n{rules_text}"
         )
+
+        from api.core.conversational import is_hindi_or_hinglish
+        if is_hindi_or_hinglish(question):
+            lang_instruction = "\n\nCRITICAL LANGUAGE INSTRUCTION: The student asked in Hindi or Hinglish. Answer in polite, natural Hindi or Hinglish matching the student's language."
+        else:
+            lang_instruction = "\n\nCRITICAL LANGUAGE INSTRUCTION: The student asked in English. Answer in clear, polite English."
 
         user_content = (
             f"<untrusted_academic_context>\n{context_block}\n</untrusted_academic_context>\n\n"
-            f"Question: {question}\n\nAnswer:"
+            f"Question: {question}{lang_instruction}\n\nAnswer:"
         )
 
         messages = [

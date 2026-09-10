@@ -3,7 +3,8 @@ import json
 import hashlib
 import logging
 from collections import OrderedDict
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
+import numpy as np
 from api.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -11,7 +12,8 @@ logger = logging.getLogger(__name__)
 class SemanticCache:
     """
     Authorization and scope-aware cache layer.
-    Uses Redis when available, falls back to persistent in-memory bounded LRU TTL store.
+    Tier 1: High-speed SHA-256 exact-match key cache (Redis / in-memory LRU).
+    Tier 2: In-memory cosine-similarity semantic cache for query embeddings (threshold >= 0.94).
     Reference: Phase 7 & Phase 19 of technical plan.
     """
 
@@ -20,6 +22,8 @@ class SemanticCache:
     def __init__(self):
         self.redis_client = None
         self._memory_cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self._semantic_vectors: List[Dict[str, Any]] = []
+        self._max_semantic_entries = 1000
         self._init_attempted = False
         self._op_counter = 0
 
@@ -67,11 +71,13 @@ class SemanticCache:
         return None
 
     def _purge_expired_memory(self):
-        """Purges expired items from memory cache to keep memory consumption low."""
+        """Purges expired items from memory cache safely without mutation during iteration."""
         now = time.time()
-        expired_keys = [k for k, v in self._memory_cache.items() if v["expires_at"] <= now]
-        for k in expired_keys:
-            self._memory_cache.pop(k, None)
+        keys = list(self._memory_cache.keys())
+        for k in keys:
+            item = self._memory_cache.get(k)
+            if item and item.get("expires_at", 0) <= now:
+                self._memory_cache.pop(k, None)
 
     async def set(self, key: str, data: Dict[str, Any], ttl: int = None):
         ttl = ttl or settings.CACHE_TTL_VOLATILE_SECONDS
@@ -98,6 +104,80 @@ class SemanticCache:
             "data": data,
             "expires_at": time.time() + ttl
         }
+
+    def get_semantic(
+        self,
+        query_vector: List[float],
+        scope: str = "all|all",
+        threshold: float = 0.94
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Tier-2 Semantic Cache: Evaluates cosine similarity of query embedding against cached queries.
+        Returns cached response if similarity >= threshold (default 0.94).
+        Runs in <1ms in memory without hitting disk or LLM.
+        """
+        if not self._semantic_vectors or not query_vector:
+            return None
+
+        now = time.time()
+        try:
+            q_arr = np.array(query_vector, dtype=np.float32)
+            norm_q = np.linalg.norm(q_arr)
+            if norm_q == 0:
+                return None
+            q_arr = q_arr / norm_q
+
+            best_sim = 0.0
+            best_entry = None
+            valid_entries = []
+
+            for entry in self._semantic_vectors:
+                if entry["expires_at"] <= now:
+                    continue
+                valid_entries.append(entry)
+                if entry["scope"] != scope:
+                    continue
+                sim = float(np.dot(q_arr, entry["norm_vector"]))
+                if sim > best_sim:
+                    best_sim = sim
+                    best_entry = entry
+
+            self._semantic_vectors = valid_entries
+
+            if best_entry and best_sim >= threshold:
+                logger.info(f"Tier-2 Semantic Cache HIT! (Cosine sim: {best_sim:.3f} >= {threshold})")
+                return best_entry["data"]
+        except Exception as e:
+            logger.warning(f"Tier-2 semantic cache evaluation note: {e}")
+
+        return None
+
+    async def set_semantic(
+        self,
+        key: str,
+        query_vector: Optional[List[float]],
+        scope: str,
+        data: Dict[str, Any],
+        ttl: Optional[int] = None
+    ):
+        """Sets both Tier-1 exact key and Tier-2 semantic vector cache."""
+        await self.set(key, data, ttl=ttl)
+        if query_vector:
+            try:
+                q_arr = np.array(query_vector, dtype=np.float32)
+                norm_q = np.linalg.norm(q_arr)
+                if norm_q > 0:
+                    ttl_val = ttl or settings.CACHE_TTL_VOLATILE_SECONDS
+                    if len(self._semantic_vectors) >= self._max_semantic_entries:
+                        self._semantic_vectors.pop(0)
+                    self._semantic_vectors.append({
+                        "norm_vector": q_arr / norm_q,
+                        "scope": scope,
+                        "data": data,
+                        "expires_at": time.time() + ttl_val,
+                    })
+            except Exception as e:
+                logger.warning(f"Tier-2 semantic cache store note: {e}")
 
     async def get_diagnostics(self) -> Dict[str, Any]:
         """
@@ -151,6 +231,7 @@ class SemanticCache:
     def clear(self):
         """Clears in-memory cache and attempts to flush Redis keys."""
         self._memory_cache.clear()
+        self._semantic_vectors.clear()
         if self.redis_client:
             try:
                 import asyncio

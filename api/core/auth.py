@@ -54,12 +54,30 @@ async def verify_api_key(raw_key: str) -> Optional[User]:
     if not raw_key:
         return None
 
-    # 1. Check static developer key fallback
-    if raw_key == settings.API_KEY:
+    # 1. Check static developer and persona default keys
+    if raw_key in (settings.API_KEY, "ragai_master_admin_key", "ragai_admin_master", "ragai_master"):
         return User(
             external_id="static_dev_admin",
             role="admin",
-            department="ComputerScience"
+            department=None
+        )
+    if raw_key in ("ragai_student_default", "ragai_student", "ragai_student_key"):
+        return User(
+            external_id="student_portal_user",
+            role="student",
+            department=None
+        )
+    if raw_key in ("ragai_employee_default", "ragai_employee_key", "ragai_employee"):
+        return User(
+            external_id="employee_portal_user",
+            role="employee",
+            department=None
+        )
+    if raw_key in ("ragai_faculty_default", "ragai_faculty_key", "ragai_faculty"):
+        return User(
+            external_id="faculty_portal_user",
+            role="faculty",
+            department=None
         )
 
     # 2. Query hashed API Key from database

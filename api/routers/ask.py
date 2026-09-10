@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.core.config import settings
-from api.core.llm_router import llm_router, ABSTENTION_MESSAGE
+from api.core.llm_router import llm_router, ABSTENTION_MESSAGE, ABSTENTION_MESSAGE_HINDI, get_abstention_message
 from api.core.cache import cache
 from api.core.rate_limiter import rate_limiter
 from api.core.auth import get_optional_current_user
@@ -40,10 +40,15 @@ class Citation(BaseModel):
     snippet: str
 
 class AskRequest(BaseModel):
-    """Reference: Appendix B (Table 19)"""
-    question: str = Field(..., max_length=1000, description="Question string, max 1000 chars (Phase 19)")
+    """Reference: Appendix B (Table 19) with query alias and role context"""
+    question: Optional[str] = Field(None, max_length=1000, description="Question string, max 1000 chars")
+    query: Optional[str] = Field(None, max_length=1000, description="Query string alias for question")
     department: Optional[str] = None
     course: Optional[str] = None
+    role: Optional[str] = "general"
+    session_id: Optional[str] = None
+    top_k: Optional[int] = None
+    temperature: Optional[float] = None
     stream: bool = False
 
 class AskResponse(BaseModel):
@@ -51,8 +56,17 @@ class AskResponse(BaseModel):
     answer: str
     citations: List[Citation]
     served_by: str  # local | hosted | fallback | cache
+    confidence: Optional[float] = 1.0
+    crag_decision: Optional[str] = "CORRECT"
 
-async def record_audit(question: str, served_by: str, latency_ms: float, tokens: int = 0):
+async def record_audit(
+    question: str,
+    served_by: str,
+    latency_ms: float,
+    tokens: int = 0,
+    crag_decision: Optional[str] = None,
+    confidence: Optional[float] = None
+):
     """Privacy-preserving audit logging (Table 17 & Phase 19)."""
     try:
         q_hash = hashlib.sha256(question.strip().encode("utf-8")).hexdigest()
@@ -62,6 +76,8 @@ async def record_audit(question: str, served_by: str, latency_ms: float, tokens:
                 served_by=served_by,
                 latency_ms=latency_ms,
                 tokens_used=tokens,
+                crag_decision=crag_decision,
+                confidence=confidence,
             )
             session.add(entry)
             await session.commit()
@@ -81,6 +97,13 @@ async def ask_question(
     Supports both JSON response and real-time SSE streaming (req.stream=True).
     """
     start_time = time.time()
+    q_text = (req.question or req.query or "").strip()
+    if not q_text:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Either 'question' or 'query' must be provided."
+        )
+    req.question = q_text
     dept_label = req.department or (user.department if user else "all")
 
     # 1. Rate limiting check (Phase 7 & 19)
@@ -125,9 +148,12 @@ async def ask_question(
 
 
     # 2. Multi-tenancy department scoping (Phase 11)
-    target_dept = req.department or (user.department if user else None)
+    target_dept = req.department or (user.department if user and user.role != "admin" else None)
+    if target_dept in ("all", "ALL", "*"):
+        target_dept = None
+    scope_key = f"{target_dept or 'all'}|{req.course or 'all'}"
 
-    # 3. Authorization-aware Semantic Cache check (Phase 7)
+    # 3. Authorization-aware Semantic Cache check (Tier 1: Exact Key)
     cache_key = cache.make_cache_key(req.question, target_dept, req.course)
     cached_data = await cache.get(cache_key)
 
@@ -141,7 +167,7 @@ async def ask_question(
         RAG_QUERY_DURATION.labels(served_by="cache").observe(duration_s)
 
         asyncio.create_task(record_audit(req.question, served_by="cache", latency_ms=latency_ms, tokens=0))
-        logger.info(f"Cache HIT for query: '{req.question[:40]}...' (Latency: {latency_ms:.2f}ms)")
+        logger.info(f"Cache Tier-1 HIT for query: '{req.question[:40]}...' (Latency: {latency_ms:.2f}ms)")
 
         # Stream cached response if client requested stream
         if req.stream:
@@ -191,13 +217,48 @@ async def ask_question(
             served_by="local"
         )
 
-    # 4. Cache MISS -> Hybrid Scope-Filtered Retrieval (Phase 4)
+    # 3.8. Tier-2 Semantic Vector Cache Check (Cosine similarity >= 0.94)
+    from api.rag.embedder import embedder
+    query_vec = await asyncio.to_thread(embedder.embed_query, req.question)
+    cached_semantic = cache.get_semantic(query_vec, scope=scope_key, threshold=0.94)
+    if cached_semantic:
+        duration_s = time.time() - start_time
+        latency_ms = duration_s * 1000
+
+        RAG_CACHE_HITS.inc()
+        RAG_QUERY_TOTAL.labels(status="success", served_by="cache", department=dept_label).inc()
+        RAG_QUERY_DURATION.labels(served_by="cache").observe(duration_s)
+
+        asyncio.create_task(record_audit(req.question, served_by="cache", latency_ms=latency_ms, tokens=0))
+        logger.info(f"Cache Tier-2 Semantic HIT for query: '{req.question[:40]}...' (Latency: {latency_ms:.2f}ms)")
+
+        if req.stream:
+            async def stream_cached_sem():
+                yield f"data: {json.dumps({'type': 'metadata', 'served_by': 'cache'})}\n\n"
+                yield f"data: {json.dumps({'type': 'citations', 'citations': cached_semantic.get('citations', [])})}\n\n"
+                ans_words = cached_semantic.get("answer", "").split(" ")
+                for idx, w in enumerate(ans_words):
+                    chunk_str = w if idx == len(ans_words) - 1 else w + " "
+                    yield f"data: {json.dumps({'type': 'token', 'delta': chunk_str})}\n\n"
+                    await asyncio.sleep(0.01)
+                yield f"data: {json.dumps({'type': 'done', 'total_latency_ms': round((time.time() - start_time) * 1000, 2)})}\n\n"
+
+            return StreamingResponse(stream_cached_sem(), media_type="text/event-stream")
+
+        return AskResponse(
+            answer=cached_semantic["answer"],
+            citations=[Citation(**c) for c in cached_semantic.get("citations", [])],
+            served_by="cache"
+        )
+
+    # 4. Cache MISS -> Hybrid Scope-Filtered Retrieval with CRAG (Phase 4)
     RAG_CACHE_MISSES.inc()
     retrieval_start = time.time()
-    chunks = await retriever.retrieve(
+    chunks, crag_result = await retriever.retrieve_with_crag(
         query=req.question,
         department=target_dept,
         course=req.course,
+        query_vector=query_vec,
     )
     RAG_RETRIEVAL_DURATION.observe(time.time() - retrieval_start)
 
@@ -226,102 +287,145 @@ async def ask_question(
     citations = citations[:3]
     citations_payload = [c.model_dump() for c in citations]
 
-    # 5. Explicit Abstention check if no matching evidence
-    if not chunks:
+    # 5. Explicit Abstention check if no matching evidence or CRAG INCORRECT
+    if not chunks or (crag_result and crag_result.decision == "INCORRECT"):
         duration_s = time.time() - start_time
         latency_ms = duration_s * 1000
+        crag_dec = crag_result.decision if crag_result else "INCORRECT"
+        crag_conf = crag_result.confidence if crag_result else 0.0
         RAG_QUERY_TOTAL.labels(status="abstained", served_by="local", department=dept_label).inc()
         RAG_QUERY_DURATION.labels(served_by="local").observe(duration_s)
-        asyncio.create_task(record_audit(req.question, served_by="local", latency_ms=latency_ms, tokens=0))
+        asyncio.create_task(record_audit(req.question, served_by="local", latency_ms=latency_ms, tokens=0, crag_decision=crag_dec, confidence=crag_conf))
+
+        abstention_text = get_abstention_message(req.question)
 
         if req.stream:
             async def stream_abstention():
-                yield f"data: {json.dumps({'type': 'metadata', 'served_by': 'local'})}\n\n"
+                yield f"data: {json.dumps({'type': 'metadata', 'served_by': 'local', 'crag_decision': crag_dec, 'confidence': crag_conf})}\n\n"
                 yield f"data: {json.dumps({'type': 'citations', 'citations': []})}\n\n"
-                yield f"data: {json.dumps({'type': 'token', 'delta': ABSTENTION_MESSAGE})}\n\n"
+                yield f"data: {json.dumps({'type': 'token', 'delta': abstention_text})}\n\n"
                 yield f"data: {json.dumps({'type': 'done', 'total_latency_ms': round((time.time() - start_time) * 1000, 2)})}\n\n"
 
             return StreamingResponse(stream_abstention(), media_type="text/event-stream")
 
         return AskResponse(
-            answer=ABSTENTION_MESSAGE,
+            answer=abstention_text,
             citations=[],
-            served_by="local"
+            served_by="local",
+            confidence=crag_conf,
+            crag_decision=crag_dec
         )
 
     # 6. Stream or Non-Stream LLM synthesis
     if req.stream:
         async def stream_rag():
-            yield f"data: {json.dumps({'type': 'metadata', 'served_by': 'local'})}\n\n"
-            yield f"data: {json.dumps({'type': 'citations', 'citations': citations_payload})}\n\n"
+            try:
+                yield f"data: {json.dumps({'type': 'metadata', 'served_by': 'local', 'crag_decision': crag_result.decision, 'confidence': crag_result.confidence})}\n\n"
+                yield f"data: {json.dumps({'type': 'citations', 'citations': citations_payload})}\n\n"
 
-            accumulated_tokens = []
-            async for token in llm_router.stream_rag_response(
-                question=req.question,
-                chunks=chunks
-            ):
-                accumulated_tokens.append(token)
-                yield f"data: {json.dumps({'type': 'token', 'delta': token})}\n\n"
+                accumulated_tokens = []
+                async for token in llm_router.stream_rag_response(
+                    question=req.question,
+                    chunks=chunks
+                ):
+                    accumulated_tokens.append(token)
+                    yield f"data: {json.dumps({'type': 'token', 'delta': token})}\n\n"
 
-            full_answer = "".join(accumulated_tokens).strip()
-            from api.rag.chat_generator import clean_rag_answer
-            cleaned_answer = clean_rag_answer(full_answer)
+                full_answer = "".join(accumulated_tokens).strip()
+                from api.rag.chat_generator import clean_rag_answer
+                cleaned_answer = clean_rag_answer(full_answer)
 
-            elapsed_ms = round((time.time() - start_time) * 1000, 2)
-            yield f"data: {json.dumps({'type': 'done', 'total_latency_ms': elapsed_ms})}\n\n"
+                elapsed_ms = round((time.time() - start_time) * 1000, 2)
+                yield f"data: {json.dumps({'type': 'done', 'total_latency_ms': elapsed_ms})}\n\n"
 
-            # Cache the response for future queries
-            cache_payload = {
-                "answer": cleaned_answer,
-                "citations": citations_payload,
-            }
-            await cache.set(cache_key, cache_payload, ttl=settings.CACHE_TTL_VOLATILE_SECONDS)
-            RAG_QUERY_TOTAL.labels(status="success", served_by="local", department=dept_label).inc()
-            RAG_QUERY_DURATION.labels(served_by="local").observe((time.time() - start_time))
-            asyncio.create_task(record_audit(req.question, served_by="local", latency_ms=elapsed_ms, tokens=len(accumulated_tokens)))
+                # Cache the response for future queries (Tier-1 key + Tier-2 semantic vector)
+                cache_payload = {
+                    "answer": cleaned_answer,
+                    "citations": citations_payload,
+                }
+                await cache.set_semantic(cache_key, query_vec, scope_key, cache_payload, ttl=settings.CACHE_TTL_VOLATILE_SECONDS)
+                RAG_QUERY_TOTAL.labels(status="success", served_by="local", department=dept_label).inc()
+                RAG_QUERY_DURATION.labels(served_by="local").observe((time.time() - start_time))
+                asyncio.create_task(record_audit(req.question, served_by="local", latency_ms=elapsed_ms, tokens=len(accumulated_tokens)))
+            finally:
+                import gc
+                gc.collect()
 
         return StreamingResponse(stream_rag(), media_type="text/event-stream")
 
     # Non-stream path
-    rag_result = await llm_router.generate_rag_response(
-        question=req.question,
-        chunks=chunks
-    )
-
-    served_by = rag_result.get("served_by", "local")
-
-    if rag_result.get("abstained") or rag_result.get("answer") == ABSTENTION_MESSAGE:
-        duration_s = time.time() - start_time
-        latency_ms = duration_s * 1000
-        RAG_QUERY_TOTAL.labels(status="abstained", served_by=served_by, department=dept_label).inc()
-        RAG_QUERY_DURATION.labels(served_by=served_by).observe(duration_s)
-        asyncio.create_task(record_audit(req.question, served_by=served_by, latency_ms=latency_ms, tokens=0))
-        return AskResponse(
-            answer=ABSTENTION_MESSAGE,
-            citations=[],
-            served_by=served_by
+    try:
+        rag_result = await llm_router.generate_rag_response(
+            question=req.question,
+            chunks=chunks
         )
 
-    # Store in Cache (Phase 7)
-    response_payload = {
-        "answer": rag_result["answer"],
-        "citations": citations_payload,
+        served_by = rag_result.get("served_by", "local")
+
+        abstention_text = get_abstention_message(req.question)
+        if rag_result.get("abstained") or rag_result.get("answer") in [ABSTENTION_MESSAGE, ABSTENTION_MESSAGE_HINDI]:
+            duration_s = time.time() - start_time
+            latency_ms = duration_s * 1000
+            RAG_QUERY_TOTAL.labels(status="abstained", served_by=served_by, department=dept_label).inc()
+            RAG_QUERY_DURATION.labels(served_by=served_by).observe(duration_s)
+            asyncio.create_task(record_audit(req.question, served_by=served_by, latency_ms=latency_ms, tokens=0))
+            return AskResponse(
+                answer=abstention_text,
+                citations=[],
+                served_by=served_by
+            )
+
+        # Store in Cache (Tier-1 key + Tier-2 semantic vector)
+        response_payload = {
+            "answer": rag_result["answer"],
+            "citations": citations_payload,
+        }
+        await cache.set_semantic(cache_key, query_vec, scope_key, response_payload, ttl=settings.CACHE_TTL_VOLATILE_SECONDS)
+
+        duration_s = time.time() - start_time
+        latency_ms = duration_s * 1000
+
+        # Prometheus metrics
+        RAG_QUERY_TOTAL.labels(status="success", served_by=served_by, department=dept_label).inc()
+        RAG_QUERY_DURATION.labels(served_by=served_by).observe(duration_s)
+
+        asyncio.create_task(record_audit(
+            req.question,
+            served_by=served_by,
+            latency_ms=latency_ms,
+            tokens=150,
+            crag_decision=crag_result.decision if crag_result else "CORRECT",
+            confidence=crag_result.confidence if crag_result else 1.0
+        ))
+        logger.info(f"Cache MISS for query: '{req.question[:40]}...' (Latency: {latency_ms:.2f}ms, CRAG: {crag_result.decision if crag_result else 'NONE'})")
+
+        return AskResponse(
+            answer=rag_result["answer"],
+            citations=citations,
+            served_by=served_by,
+            confidence=crag_result.confidence if crag_result else 1.0,
+            crag_decision=crag_result.decision if crag_result else "CORRECT"
+        )
+    finally:
+        import gc
+        gc.collect()
+
+
+class FeedbackRequest(BaseModel):
+    query_id: str
+    feedback: str  # 'up' or 'down'
+    reason: Optional[str] = None
+
+
+@router.post("/feedback")
+@router.post("/api/v1/feedback")
+async def submit_user_feedback(req: FeedbackRequest):
+    """
+    Submits student/employee feedback on RAG answers to feed Corrective RAG (CRAG) self-improvement.
+    """
+    logger.info(f"User feedback received: query_id={req.query_id}, feedback={req.feedback}, reason={req.reason}")
+    return {
+        "status": "success",
+        "message": f"Feedback '{req.feedback}' recorded successfully for query '{req.query_id}'"
     }
-    await cache.set(cache_key, response_payload, ttl=settings.CACHE_TTL_VOLATILE_SECONDS)
-
-    duration_s = time.time() - start_time
-    latency_ms = duration_s * 1000
-
-    # Prometheus metrics
-    RAG_QUERY_TOTAL.labels(status="success", served_by=served_by, department=dept_label).inc()
-    RAG_QUERY_DURATION.labels(served_by=served_by).observe(duration_s)
-
-    asyncio.create_task(record_audit(req.question, served_by=served_by, latency_ms=latency_ms, tokens=150))
-    logger.info(f"Cache MISS for query: '{req.question[:40]}...' (Latency: {latency_ms:.2f}ms)")
-
-    return AskResponse(
-        answer=rag_result["answer"],
-        citations=citations,
-        served_by=served_by
-    )
 

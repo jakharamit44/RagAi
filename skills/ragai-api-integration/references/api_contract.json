@@ -1,0 +1,273 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "RagAi Integration API",
+    "version": "2.4.0",
+    "description": "API contract for integrating RagAi into student portals, employee intranets, faculty dashboards, and LMS platforms."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "Local On-Premise Instance"
+    }
+  ],
+  "paths": {
+    "/api/v1/ask": {
+      "post": {
+        "summary": "Ask question with RAG grounding",
+        "description": "Answers student, employee, or faculty questions grounded in verified institutional documents.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "query"
+                ],
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "example": "What are the rules for earned leave?"
+                  },
+                  "department": {
+                    "type": "string",
+                    "nullable": true,
+                    "example": "Human Resources"
+                  },
+                  "course": {
+                    "type": "string",
+                    "nullable": true,
+                    "example": "Employee Service Rules"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "student",
+                      "employee",
+                      "faculty",
+                      "admin",
+                      "general"
+                    ],
+                    "default": "general"
+                  },
+                  "top_k": {
+                    "type": "integer",
+                    "default": 5,
+                    "minimum": 1,
+                    "maximum": 20
+                  },
+                  "temperature": {
+                    "type": "number",
+                    "default": 0.2,
+                    "minimum": 0.0,
+                    "maximum": 1.0
+                  },
+                  "session_id": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful grounded response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "answer": {
+                      "type": "string"
+                    },
+                    "citations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "document_name": {
+                            "type": "string"
+                          },
+                          "page_number": {
+                            "type": "integer"
+                          },
+                          "similarity_score": {
+                            "type": "number"
+                          },
+                          "chunk_id": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "confidence_score": {
+                      "type": "number"
+                    },
+                    "session_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/feedback": {
+      "post": {
+        "summary": "Submit user feedback",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "query_id",
+                  "feedback"
+                ],
+                "properties": {
+                  "query_id": {
+                    "type": "string"
+                  },
+                  "feedback": {
+                    "type": "string",
+                    "enum": [
+                      "up",
+                      "down"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Feedback recorded"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/brain/graph": {
+      "get": {
+        "summary": "Retrieve Cognitive AI Brain knowledge graph (Canonical)",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "department",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cortex topology and metrics"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/brain/fire-synapse": {
+      "post": {
+        "summary": "Probe cognitive synapse activation (Canonical)",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "example": "Operating systems virtual memory"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Activated nodes, pulses, and Thought Pathway"
+          }
+        }
+      }
+    },
+    "/api/v1/brain/cortex": {
+      "get": {
+        "summary": "Retrieve Cognitive AI Brain knowledge graph (SDK Alias)",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dept",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cortex topology and metrics"
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "summary": "Subsystem health heartbeat",
+        "responses": {
+          "200": {
+            "description": "All subsystems healthy"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    }
+  }
+}

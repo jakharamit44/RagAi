@@ -9,13 +9,16 @@ from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from api.core.config import settings
 from api.core.exceptions import setup_exception_handlers
 from api.routers import health_router, ask_router, chat_router, documents_router, auth_router
 from api.routers.metrics import router as metrics_router
 from api.routers.admin_governance import router as admin_governance_router
+from api.routers.scraper import router as scraper_router
+from api.routers.brain import router as brain_router, alias_router as brain_alias_router
+from api.scraper.scheduler import scraper_scheduler
 from db.session import init_db, async_session_factory
 from db.models import Chunk, Document
 from api.rag.bm25_index import bm25_index
@@ -38,7 +41,33 @@ async def lifespan(app: FastAPI):
 
     await init_db()
 
+    # Seed default MDU WebScrapeJob if none exists
+    try:
+        from db.models import WebScrapeJob
+        import json
+        async with async_session_factory() as session:
+            job_cnt = (await session.execute(select(func.count(WebScrapeJob.id)))).scalar() or 0
+            if job_cnt == 0:
+                default_job = WebScrapeJob(
+                    name="MDU Official Portal & Notifications",
+                    base_url="https://mdu.ac.in",
+                    seed_urls=json.dumps(["https://mdu.ac.in/default.aspx", "https://mdu.ac.in/defaultMatter.aspx?PageId=1"]),
+                    allowed_domains="mdu.ac.in",
+                    max_depth=2,
+                    max_pages=200,
+                    crawl_interval_minutes=360,
+                    auto_ingest=True,
+                    is_active=True,
+                    status="idle",
+                )
+                session.add(default_job)
+                await session.commit()
+                logger.info("Initialized default MDU WebScrapeJob.")
+    except Exception as e:
+        logger.warning(f"Default WebScrapeJob init note: {e}")
+
     # Load dynamic system settings configured from Admin Portal (keeps .env untouched)
+
     try:
         from db.models import SystemSetting
         async with async_session_factory() as session:
@@ -106,9 +135,41 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.debug(f"Qdrant startup sync note: {e}")
 
+    # Start automated scraper background scheduler
+    try:
+        scraper_scheduler.start()
+    except Exception as e:
+        logger.warning(f"Could not start scraper scheduler: {e}")
+
     logger.info("University RAG API is ready to receive queries.")
     yield
     logger.info("Shutting down University RAG API Service...")
+    try:
+        scraper_scheduler.stop()
+    except Exception as e:
+        logger.warning(f"Error stopping scraper scheduler: {e}")
+
+    try:
+        from api.rag.qdrant_store import qdrant_store
+        qdrant_store.close()
+        logger.info("Closed Qdrant vector store connection.")
+    except Exception as e:
+        logger.warning(f"Error closing Qdrant store: {e}")
+
+    try:
+        from db.session import engine
+        await engine.dispose()
+        logger.info("Disposed database connection pool.")
+    except Exception as e:
+        logger.warning(f"Error disposing database engine: {e}")
+
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            logger.info("Released CUDA VRAM cache on shutdown.")
+    except Exception:
+        pass
 
 app = FastAPI(
     title="Enterprise University RAG System API",
@@ -195,6 +256,10 @@ app.include_router(documents_router)
 app.include_router(auth_router)
 app.include_router(metrics_router)
 app.include_router(admin_governance_router)
+app.include_router(scraper_router)
+app.include_router(brain_router)
+app.include_router(brain_alias_router)
+
 
 if __name__ == "__main__":
     import uvicorn

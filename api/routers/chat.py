@@ -87,7 +87,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request, user: O
                     }
                 ],
             }
-            yield f"data: {json.dumps(initial_chunk)}\n\n"
+            yield f"data: {json.dumps(initial_chunk, ensure_ascii=False)}\n\n"
 
             async for token in llm_router.stream_response(
                 messages=raw_messages,
@@ -106,7 +106,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request, user: O
                         }
                     ],
                 }
-                yield f"data: {json.dumps(chunk)}\n\n"
+                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
 
             # Final stopping chunk
             final_chunk = {
@@ -122,7 +122,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request, user: O
                     }
                 ],
             }
-            yield f"data: {json.dumps(final_chunk)}\n\n"
+            yield f"data: {json.dumps(final_chunk, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(stream_openai_chunks(), media_type="text/event-stream")
