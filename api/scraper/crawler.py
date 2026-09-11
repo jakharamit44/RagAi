@@ -96,6 +96,10 @@ class UniversityWebCrawler:
                 seed_urls = [job.base_url]
 
             allowed_domains = [d.strip() for d in job.allowed_domains.split(",") if d.strip()]
+            base_root = UrlNormalizer.extract_root_domain(job.base_url)
+            if base_root and base_root not in allowed_domains:
+                allowed_domains.append(base_root)
+
             max_depth = job.max_depth or 3
             max_pages = max_pages_override or job.max_pages or 300
             auto_ingest = job.auto_ingest
@@ -273,10 +277,19 @@ class UniversityWebCrawler:
                     self.log_activity(f"HTTP {resp.status_code} for {url}", level="warning")
                     return
 
-                # Content extraction
-                extracted = PageExtractor.extract_html_content(resp.content, page_url=url)
+                # Content extraction (including visual banner announcement OCR)
+                extracted = await PageExtractor.extract_html_content(
+                    resp.content,
+                    page_url=url,
+                    allowed_domains=allowed_domains,
+                    ocr_banners=True,
+                    client=client
+                )
                 title = extracted.get("title", "University Web Page")
                 markdown_text = extracted.get("text", "")
+                banners = extracted.get("banner_announcements", [])
+                if banners:
+                    self.log_activity(f"🖼️ [Banner OCR] Extracted {len(banners)} visual announcements from {title[:30]}")
 
                 should_ingest, reason, manifest_entry = await DeltaDetector.evaluate_change(
                     url=url,

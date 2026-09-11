@@ -1286,6 +1286,9 @@
           </p>
         </div>
         <div class="flex items-center gap-2">
+          <button id="btn-purge-scraped-rag" onclick="confirmPurgeScrapedRagData()" class="bg-rose-950/80 hover:bg-rose-900 text-rose-300 font-bold text-xs px-3.5 py-2.5 rounded-xl border border-rose-800 shadow transition flex items-center" title="Permanently delete all scraped web documents, downloaded notices, chunks, vectors, and BM25 entries (Preserves course & uploaded files)">
+            <i class="fa-solid fa-trash-can mr-1.5 text-rose-400"></i> Purge Scraped RAG Data
+          </button>
           <button id="btn-clean-scraper-temp-hero" onclick="cleanScraperTempFiles()" class="bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs px-3.5 py-2.5 rounded-xl border border-slate-700 shadow transition flex items-center" title="Reclaim disk space by purging transient downloaded files while preserving original course PDFs">
             <i class="fa-solid fa-broom mr-1.5 text-amber-400"></i> Clean Temp Files
           </button>
@@ -1368,8 +1371,12 @@
               <textarea id="cfg-job-seeds" rows="2" required class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"></textarea>
             </div>
             <div>
-              <label class="block font-semibold text-slate-600 mb-1">Allowed Domains (Strict whitelist)</label>
+              <div class="flex justify-between items-center mb-1">
+                <label class="block font-semibold text-slate-600">Allowed Domains (Root & Subdomains)</label>
+                <span class="text-[10px] text-emerald-600 font-semibold"><i class="fa-solid fa-circle-check mr-1"></i>Auto-allows *.mdu.ac.in</span>
+              </div>
               <input type="text" id="cfg-job-domains" required class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none" placeholder="mdu.ac.in">
+              <p class="text-[10px] text-slate-400 mt-0.5">Inputting <code class="font-mono text-emerald-700">mdu.ac.in</code> automatically explores all university subdomains (<code class="font-mono">admission.mdu.ac.in</code>, <code class="font-mono">results.mdu.ac.in</code>) and all linked files (.pdf, .docx, .xlsx).</p>
             </div>
             <div class="grid grid-cols-2 gap-2">
               <div>
@@ -1385,9 +1392,18 @@
               <label class="block font-semibold text-slate-600 mb-1">Auto-Schedule Frequency (Minutes)</label>
               <input type="number" id="cfg-job-interval" min="15" max="10080" required class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono">
             </div>
-            <div class="flex items-center space-x-2 pt-1">
-              <input type="checkbox" id="cfg-job-auto-ingest" class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4">
-              <label for="cfg-job-auto-ingest" class="font-semibold text-slate-700">Auto-Ingest into Vector DB & BM25</label>
+            <div class="space-y-1 pt-1">
+              <div class="flex items-center space-x-2">
+                <input type="checkbox" id="cfg-job-auto-ingest" class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4">
+                <label for="cfg-job-auto-ingest" class="font-semibold text-slate-700">Auto-Ingest into Vector DB & BM25</label>
+              </div>
+              <div class="flex items-center space-x-2 pt-1">
+                <input type="checkbox" id="cfg-job-ocr-banners" checked class="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4">
+                <label for="cfg-job-ocr-banners" class="font-semibold text-slate-700 flex items-center">
+                  <i class="fa-solid fa-image text-emerald-600 mr-1.5 text-xs"></i> Extract Banner Image & Slider Announcements (PP-OCRv4)
+                </label>
+              </div>
+              <p class="text-[10px] text-slate-400 ml-6">Performs local OCR on carousel slides & banner graphics to capture urgent notifications, admissions, and exam postponements.</p>
             </div>
             <div class="pt-2">
               <button type="submit" id="btn-save-scraper-cfg" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow transition flex items-center justify-center">
@@ -5221,6 +5237,8 @@
           if (elPages) elPages.value = j.max_pages || 300;
           if (elInt) elInt.value = j.crawl_interval_minutes || 360;
           if (elAuto) elAuto.checked = j.auto_ingest !== false;
+          const elOcr = document.getElementById('cfg-job-ocr-banners');
+          if (elOcr) elOcr.checked = true;
 
           const stats = j.stats || {};
           if (stats.pages_scraped !== undefined) document.getElementById('scraper-metric-pages').textContent = stats.pages_scraped;
@@ -5563,6 +5581,66 @@
       } finally {
         if (btn1) { btn1.disabled = false; btn1.innerHTML = origText1; }
         if (btn2) { btn2.disabled = false; btn2.innerHTML = origText2; }
+      }
+    }
+
+    async function confirmPurgeScrapedRagData() {
+      const confirmMsg = 
+        "⚠️ PURGE ALL SCRAPED RAG DATA?\n\n" +
+        "This will permanently delete:\n" +
+        "• All scraped university web documents and notices (department='University Portal')\n" +
+        "• All downloaded official documents from scraping\n" +
+        "• All associated text chunks and Qdrant vector points\n" +
+        "• All scraped entries in BM25 corpus & OpenViking tiered context\n" +
+        "• All crawl manifest tracking history & temp download files\n\n" +
+        "🔒 GUARANTEE: All course materials in data/sample_courses/, data/uploads/, and watched folders will remain 100% UNTOUCHED.\n\n" +
+        "Type 'PURGE' to confirm deletion:";
+      
+      const input = prompt(confirmMsg);
+      if (input !== "PURGE") {
+        if (input !== null) alert("Purge cancelled: confirmation text did not match 'PURGE'.");
+        return;
+      }
+
+      const btn = document.getElementById('btn-purge-scraped-rag');
+      const origText = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1.5"></i> Purging Scraped Data...';
+      }
+
+      try {
+        const res = await fetch('/api/v1/admin/scraper/purge-rag-data', {
+          method: 'DELETE',
+          headers: getAuthHeaders()
+        });
+        const data = await res.json();
+        if (res.ok && data.status === "success") {
+          const m = data.metrics || {};
+          alert(
+            "✅ Scraped RAG Data Purge Complete!\n\n" +
+            `• Documents Purged: ${m.documents_purged || 0}\n` +
+            `• Chunks Purged: ${m.chunks_purged || 0}\n` +
+            `• Qdrant Vectors Purged: ${m.vectors_purged || 0}\n` +
+            `• Context Tiers Purged: ${m.context_tiers_purged || 0}\n` +
+            `• Manifest History Cleared: ${m.manifest_entries_purged || 0}\n` +
+            `• Disk Space Reclaimed: ${m.mb_freed || 0} MB\n\n` +
+            "All course materials and manual uploads remain 100% intact."
+          );
+          await loadHealth();
+          await loadScraperManifest(1);
+          if (typeof loadDocuments === 'function') await loadDocuments(1);
+          if (typeof loadCortexTree === 'function') await loadCortexTree();
+        } else {
+          alert(`Purge Error: ${data.detail || data.message || 'Unknown error'}`);
+        }
+      } catch (err) {
+        alert(`Purge Request Failed: ${err.message}`);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origText;
+        }
       }
     }
 

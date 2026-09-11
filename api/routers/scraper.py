@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, delete, func, or_, desc
 
 from db.session import async_session_factory
-from db.models import WebScrapeJob, WebScrapeManifest, Document
+from db.models import WebScrapeJob, WebScrapeManifest, Document, Chunk, ContextTier
 from api.core.auth import require_role
 from api.scraper.crawler import crawler
 from api.scraper.url_normalizer import UrlNormalizer
@@ -17,6 +17,8 @@ from api.scraper.doc_downloader import DocumentDownloader
 from api.scraper.delta_detector import DeltaDetector
 from api.scraper.ingest_bridge import ScraperIngestBridge
 from api.scraper.storage_cleaner import StorageCleaner
+from api.rag.qdrant_store import qdrant_store
+from api.rag.bm25_index import bm25_index
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -360,7 +362,13 @@ async def crawl_single_resource(payload: CrawlSingleUrlRequest):
             if resp.status_code != 200:
                 raise HTTPException(status_code=resp.status_code, detail=f"Server returned HTTP {resp.status_code}")
 
-            extracted = PageExtractor.extract_html_content(resp.content, page_url=url)
+            extracted = await PageExtractor.extract_html_content(
+                resp.content,
+                page_url=url,
+                allowed_domains=allowed_domains,
+                ocr_banners=True,
+                client=client
+            )
             title = extracted.get("title", "University Web Page")
             markdown_text = extracted.get("text", "")
 
@@ -408,4 +416,134 @@ async def cleanup_scraper_storage():
         "metrics": stats,
         **stats
     }
+
+
+@router.delete("/purge-rag-data")
+async def purge_scraped_rag_data():
+    """
+    Permanently purges all RAG data generated from web scraping:
+    - Web documents and notices (department="University Portal")
+    - Downloaded official document records from scraping
+    - Associated chunks and in-memory BM25 index entries
+    - Qdrant vector points
+    - OpenViking virtual filesystem context tiers
+    - Crawl manifest history
+    - Temporary scraped disk files in data/downloads/mdu_scraped/
+
+    STRICT GUARANTEE:
+    Academic course files in data/sample_courses/, data/uploads/, watched folders,
+    and all registered department materials remain 100% intact.
+    """
+    async with async_session_factory() as session:
+        # 1. Identify all documents originating from web scraping
+        manifest_docs_subq = select(WebScrapeManifest.document_id).where(WebScrapeManifest.document_id.isnot(None))
+
+        doc_stmt = select(Document).where(
+            or_(
+                Document.department == "University Portal",
+                Document.id.in_(manifest_docs_subq),
+                Document.source_path.startswith("http://"),
+                Document.source_path.startswith("https://"),
+                Document.source_path.ilike("%mdu_scraped%")
+            )
+        )
+        scraped_docs = (await session.execute(doc_stmt)).scalars().all()
+        scraped_doc_ids = [doc.id for doc in scraped_docs]
+
+        # 2. Collect all chunk IDs for vector DB purge
+        chunk_ids = []
+        if scraped_doc_ids:
+            chunk_stmt = select(Chunk.id).where(Chunk.document_id.in_(scraped_doc_ids))
+            chunk_ids = (await session.execute(chunk_stmt)).scalars().all()
+
+        # 3. Purge Qdrant vectors
+        vectors_purged = 0
+        try:
+            if chunk_ids:
+                point_ids = [str(cid) for cid in chunk_ids]
+                for i in range(0, len(point_ids), 1000):
+                    batch = point_ids[i:i + 1000]
+                    qdrant_store.client.delete(
+                        collection_name=qdrant_store.collection_name,
+                        points_selector=batch,
+                        wait=True
+                    )
+                vectors_purged = len(point_ids)
+
+            # Defense-in-depth: purge any vectors tagged with department="University Portal"
+            try:
+                from qdrant_client.models import Filter, FieldCondition, MatchValue
+                qdrant_store.client.delete(
+                    collection_name=qdrant_store.collection_name,
+                    points_selector=Filter(
+                        must=[FieldCondition(key="department", match=MatchValue(value="University Portal"))]
+                    ),
+                    wait=True
+                )
+            except Exception:
+                pass
+        except Exception as q_err:
+            logger.warning(f"Note on Qdrant vector deletion: {q_err}")
+
+        # 4. Purge relational DB: Chunks, Documents, ContextTier, WebScrapeManifest
+        chunks_purged = len(chunk_ids)
+        docs_purged = len(scraped_doc_ids)
+
+        if scraped_doc_ids:
+            await session.execute(delete(Chunk).where(Chunk.document_id.in_(scraped_doc_ids)))
+            await session.execute(delete(Document).where(Document.id.in_(scraped_doc_ids)))
+
+        # Purge OpenViking ContextTier entries
+        context_tiers_purged = 0
+        try:
+            ct_conditions = [ContextTier.department == "University Portal"]
+            if scraped_doc_ids:
+                ct_conditions.append(ContextTier.document_id.in_(scraped_doc_ids))
+
+            ct_stmt = delete(ContextTier).where(or_(*ct_conditions))
+            ct_res = await session.execute(ct_stmt)
+            context_tiers_purged = ct_res.rowcount or 0
+        except Exception as ct_err:
+            logger.warning(f"Note on ContextTier deletion: {ct_err}")
+
+        # Purge all WebScrapeManifest records
+        manifest_res = await session.execute(delete(WebScrapeManifest))
+        manifest_purged = manifest_res.rowcount or 0
+
+        await session.commit()
+
+        # 5. Purge BM25 in-memory corpus and rebuild index
+        try:
+            scraped_ids_set = {str(did) for did in scraped_doc_ids}
+            bm25_index.corpus = [
+                item for item in bm25_index.corpus
+                if item.get("department") != "University Portal" and str(item.get("document_id")) not in scraped_ids_set
+            ]
+            await asyncio.to_thread(bm25_index.build_index, bm25_index.corpus)
+        except Exception as bm25_err:
+            logger.warning(f"Note on BM25 corpus rebuild: {bm25_err}")
+
+        # 6. Invalidate Cognitive Brain graph cache
+        try:
+            from api.brain.graph_engine import brain_graph_engine
+            brain_graph_engine.invalidate_cache()
+        except Exception as brain_err:
+            logger.warning(f"Note on Brain cache invalidation: {brain_err}")
+
+        # 7. Sweep any residual disk downloads
+        storage_res = StorageCleaner.cleanup_scraped_downloads(purge_all_cached=True)
+
+        return {
+            "status": "success",
+            "message": f"Successfully purged all scraped RAG data: {docs_purged} documents, {chunks_purged} chunks, {vectors_purged} vectors, {manifest_purged} manifest entries, and reclaimed {storage_res.get('mb_freed', 0.0)} MB disk space. All course materials remain intact.",
+            "metrics": {
+                "documents_purged": docs_purged,
+                "chunks_purged": chunks_purged,
+                "vectors_purged": vectors_purged,
+                "context_tiers_purged": context_tiers_purged,
+                "manifest_entries_purged": manifest_purged,
+                "disk_files_deleted": storage_res.get("files_deleted", 0),
+                "mb_freed": storage_res.get("mb_freed", 0.0)
+            }
+        }
 

@@ -91,10 +91,49 @@ class UrlNormalizer:
         return hashlib.sha256(url.strip().encode("utf-8")).hexdigest()
 
     @staticmethod
+    def extract_root_domain(url_or_host: str) -> str:
+        """
+        Extracts the canonical root domain from a hostname or URL.
+        Correctly handles Indian and academic multi-part ccTLDs (.ac.in, .edu.in, etc.).
+        e.g. 'admission.mdu.ac.in' -> 'mdu.ac.in'
+             'https://www.mdu.ac.in/portal' -> 'mdu.ac.in'
+             'mdu.ac.in' -> 'mdu.ac.in'
+        """
+        if not url_or_host or not isinstance(url_or_host, str):
+            return ""
+
+        clean = url_or_host.strip().lower()
+        if "://" in clean:
+            try:
+                clean = urlparse(clean).hostname or clean
+            except Exception:
+                pass
+
+        # Strip port and path if still present
+        clean = clean.split("/")[0].split(":")[0]
+        if clean.startswith("*."):
+            clean = clean[2:]
+
+        parts = clean.split(".")
+        if len(parts) <= 2:
+            return clean
+
+        two_level_tlds = {
+            "ac.in", "edu.in", "res.in", "gov.in", "org.in", "co.in", "nic.in",
+            "ac.uk", "edu.au", "gov.uk", "co.uk", "org.uk", "ernet.in"
+        }
+
+        last_two = f"{parts[-2]}.{parts[-1]}"
+        if last_two in two_level_tlds and len(parts) >= 3:
+            return f"{parts[-3]}.{last_two}"
+
+        return f"{parts[-2]}.{parts[-1]}"
+
+    @staticmethod
     def is_allowed_domain(url: str, allowed_domains: List[str]) -> bool:
         """
-        Checks if the URL's domain is in the allowed domain list (supports subdomains).
-        e.g. 'mdu.ac.in' matches 'mdu.ac.in', 'admission.mdu.ac.in', 'www.mdu.ac.in'.
+        Checks if the URL's domain is in the allowed domain list (supports wildcard subdomains).
+        e.g. 'mdu.ac.in' automatically allows 'mdu.ac.in', 'admission.mdu.ac.in', 'results.mdu.ac.in', etc.
         """
         try:
             parsed = urlparse(url)
@@ -102,14 +141,22 @@ class UrlNormalizer:
             if not host:
                 return False
 
+            host_root = UrlNormalizer.extract_root_domain(host)
+
             for allowed in allowed_domains:
                 clean_allowed = allowed.strip().lower()
                 if not clean_allowed:
                     continue
                 if clean_allowed.startswith("*."):
                     clean_allowed = clean_allowed[2:]
-                
+
+                # Direct match or subdomain of allowed domain
                 if host == clean_allowed or host.endswith("." + clean_allowed):
+                    return True
+
+                # Match against root domain of allowed domain
+                allowed_root = UrlNormalizer.extract_root_domain(clean_allowed)
+                if allowed_root and (host == allowed_root or host.endswith("." + allowed_root) or host_root == allowed_root):
                     return True
 
             return False
@@ -175,11 +222,24 @@ class UrlNormalizer:
     @staticmethod
     def is_document_url(url: str) -> bool:
         """
-        Returns True if the URL points to a downloadable document (.pdf, .docx, etc.).
+        Returns True if the URL points to a downloadable academic document (.pdf, .docx, .xlsx, etc.).
+        Handles direct extensions and ASP.NET/PHP query-based download routes.
         """
         try:
-            path = urlparse(url).path.lower()
-            return any(path.endswith(ext) for ext in DOCUMENT_EXTENSIONS)
+            parsed = urlparse(url)
+            path = parsed.path.lower()
+            if any(path.endswith(ext) for ext in DOCUMENT_EXTENSIONS):
+                return True
+
+            # Query string document detection (e.g. ?file=notice.pdf, ?doc_type=pdf, ?filename=results.xlsx)
+            query = parsed.query.lower()
+            if query:
+                for ext in DOCUMENT_EXTENSIONS:
+                    clean_ext = ext.lstrip(".")
+                    if f".{clean_ext}" in query or f"type={clean_ext}" in query or f"format={clean_ext}" in query:
+                        return True
+
+            return False
         except Exception:
             return False
 

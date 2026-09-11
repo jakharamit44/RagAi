@@ -86,7 +86,7 @@ The platform is anchored on five inviolable architectural principles:
 - **Cognitive AI Brain & Live Knowledge Cortex**: High-performance semantic graph engine modeling University Core, Departments, Courses, Concepts, and Documents with tri-partite cognitive memory (Semantic, Episodic, Working) and live HTML5 canvas neural visualizer.
 - **OpenViking Virtual Context Filesystem (`ragai://`) & Tiered Storage Engine**: Eliminates context bloat and slashes LLM inference costs by **80–90%** using hierarchical directory contexts (L0 Abstract: ~50-100 tok, L1 Curricular Synopsis: ~400-800 tok, L2 Deep Chunks: 500-tok verbatim). Exposes agent filesystem primitives (`tree`, `ls`, `resolve`, `find`) and instant L1 overview retrieval (~250ms latency).
 - **Indian-Context AI Safety Governor & Content Moderation**: Enterprise-grade guardrail engine filtering Hindi, Hinglish, and English profanity, casteist/communal slurs (SC/ST PoA Act), adversarial "AI teaching"/model poisoning, exam malpractice (chits, paper leaks, forgery), and UGC Anti-Ragging violations with contextual whitelisting for legitimate academic inquiries.
-- **Autonomous University Web Scraper & Crawler**: 3-tier delta change detection crawler for university portals (ETag/304, noise-filtered SHA-256, cryptographic ledger) with automated PDF streaming and temporary storage reclamation.
+- **Autonomous University Web Scraper & Crawler with OCR & Purge**: 3-tier delta change detection crawler for university portals (ETag/304, noise-filtered SHA-256, cryptographic ledger) with automatic root domain and wildcard subdomain expansion (`*.mdu.ac.in`), local PP-OCRv4 banner image announcement extraction with SHA-256 caching, streaming PDF ingestion, and a one-click Scraped RAG Data Cascade Purge (`DELETE /api/v1/admin/scraper/purge-rag-data`) that purges all scraped vector points, chunks, SQLite records, and tiered context while leaving course files 100% untouched.
 - **Universal Portal Integration & Embeddable Widget**: Lightweight, zero-dependency embeddable chat widget (`ragai_chat_widget.js`), typed Python SDK, and React hooks for student portals, employee intranets, and faculty dashboards.
 - **Multi-Modal Academic Support**: Automatically converts tabular data into structured Markdown grids (`| Col 1 | Col 2 |`) and preserves inline and block LaTeX mathematics (`$BF = h_L - h_R$`).
 - **Continuous Folder Watcher**: Automated SHA-256 manifest tracking with change detection; skips unchanged files, updates edited documents, and prunes deleted sources.
@@ -477,6 +477,23 @@ docker compose -f infra/docker-compose.prod.yml ps
 - **Directory Semantic Find**: `POST /api/v1/context/find` with body `{"query": "CPU scheduling", "top_k": 5}` (OpenViking `ov find`)
 - **Context Telemetry & Savings**: `GET /api/v1/context/stats`
 - **Synchronize Context Tiers**: `POST /api/v1/context/sync` (Requires Admin API Key)
+
+### 7. Autonomous Web Scraper & Scraped RAG Data Governance
+- **Trigger Crawl**: `POST /api/v1/admin/scraper/crawl` (Requires Admin JWT / Key)
+  ```json
+  {
+    "base_url": "https://mdu.ac.in",
+    "max_depth": 3,
+    "max_pages": 150,
+    "allowed_domains": ["mdu.ac.in"],
+    "ocr_banners": true,
+    "respect_robots": true
+  }
+  ```
+- **Live Scraper Telemetry & Status**: `GET /api/v1/admin/scraper/status`
+- **Reclaim Temp Downloads**: `POST /api/v1/admin/scraper/cleanup`
+- **Scraped RAG Data Cascade Purge**: `DELETE /api/v1/admin/scraper/purge-rag-data`
+  - Completely wipes all university portal scraped documents, Qdrant vectors (`department: "University Portal"`), BM25 tokens, SQLite chunks, OpenViking virtual context tiers, and cached download files while leaving all course materials (`data/sample_courses/`) 100% untouched.
 
 ---
 
