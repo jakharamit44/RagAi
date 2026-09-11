@@ -82,6 +82,15 @@ class UniversityWebCrawler:
         }
         self.activity_logs.clear()
 
+        # Safeguard: Configure process scheduling to BELOW_NORMAL on Windows so crawling never freezes or lags host PC
+        try:
+            import psutil
+            p = psutil.Process()
+            p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+            logger.info("Configured process scheduling to BELOW_NORMAL_PRIORITY_CLASS to preserve host PC responsiveness.")
+        except Exception:
+            pass
+
         self.log_activity(f"Starting continuous batched web crawl for job ID: {job_id}")
 
         async with async_session_factory() as session:
@@ -151,6 +160,13 @@ class UniversityWebCrawler:
                     f"Skipped {self.stats['skipped_unchanged']} unchanged."
                 )
 
+            try:
+                import psutil
+                p = psutil.Process()
+                p.nice(psutil.NORMAL_PRIORITY_CLASS)
+            except Exception:
+                pass
+
         return self.stats
 
     async def _run_crawl_loop(
@@ -178,7 +194,7 @@ class UniversityWebCrawler:
         self.stats["batch_urls_processed"] = 0
         self.stats["queue_remaining"] = len(queue)
 
-        semaphore = asyncio.Semaphore(3)  # Polite concurrency
+        semaphore = asyncio.Semaphore(2)  # Polite concurrency to protect CPU, RAM & network
         client_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) UnivRAG-Scraper/1.1 (Academic Indexer)",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/pdf,*/*;q=0.8",
@@ -211,8 +227,8 @@ class UniversityWebCrawler:
                             visited=visited,
                             auto_ingest=auto_ingest
                         )
-                        # Polite inter-request pause
-                        await asyncio.sleep(0.15)
+                        # Polite inter-request pause to let CPU, network and OS breathe
+                        await asyncio.sleep(0.3)
                     except Exception as e:
                         self.stats["errors"] += 1
                         self.log_activity(f"Error processing {current_url}: {e}", level="error")
@@ -259,8 +275,8 @@ class UniversityWebCrawler:
                     self.log_activity(
                         f"🔄 [Auto-Starting Batch {next_batch_num}] Auto-advancing to next batch ({min(batch_size, rem)} links) from discovery queue..."
                     )
-                    # Brief polite batch cooldown
-                    await asyncio.sleep(1.0)
+                    # Brief polite batch cooldown allowing system memory & OS to settle
+                    await asyncio.sleep(2.0)
 
     async def _process_single_url(
         self,
