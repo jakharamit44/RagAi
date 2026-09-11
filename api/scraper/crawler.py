@@ -267,6 +267,13 @@ class UniversityWebCrawler:
                     self.log_activity(f"HTTP GET failed for {url}: {net_err}", level="error")
                     return
 
+                # Re-validate final redirected URL against SSRF
+                is_safe_target, target_reason = UrlNormalizer.is_safe_url(str(resp.url), allowed_domains)
+                if not is_safe_target:
+                    self.stats["errors"] += 1
+                    self.log_activity(f"Redirected to unsafe URL {resp.url}: {target_reason}", level="warning")
+                    return
+
                 if resp.status_code == 304:
                     self.stats["skipped_unchanged"] += 1
                     self.log_activity(f"⚡ [304 Unchanged] Web page: {url}")

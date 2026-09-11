@@ -87,19 +87,20 @@ class BM25Index:
 
     def build_index(self, chunks: List[Dict[str, Any]]):
         """Build BM25 index from list of chunk payloads, including title & section for rich lexical matching."""
-        self.corpus = chunks
-        self._valid_doc_ids = {d.get("document_id") for d in chunks if d.get("document_id")}
-        self.tokenized_corpus = [
-            self.tokenize(f"{c.get('title', '')} {c.get('section', '')} {c.get('text', '')}")
-            for c in chunks
-        ]
-        if self.tokenized_corpus:
-            self.bm25 = BM25Okapi(self.tokenized_corpus)
-            self._last_chunk_count = len(self.corpus)
-            logger.info(f"Built BM25 index over {len(self.corpus)} chunks.")
-        else:
-            self.bm25 = None
-            self._last_chunk_count = 0
+        with self._load_lock:
+            self.corpus = list(chunks)
+            self._valid_doc_ids = {d.get("document_id") for d in chunks if d.get("document_id")}
+            self.tokenized_corpus = [
+                self.tokenize(f"{c.get('title', '')} {c.get('section', '')} {c.get('text', '')}")
+                for c in chunks
+            ]
+            if self.tokenized_corpus:
+                self.bm25 = BM25Okapi(self.tokenized_corpus)
+                self._last_chunk_count = len(self.corpus)
+                logger.info(f"Built BM25 index over {len(self.corpus)} chunks.")
+            else:
+                self.bm25 = None
+                self._last_chunk_count = 0
 
     def search_sparse(
         self,

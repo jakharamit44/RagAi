@@ -309,7 +309,7 @@ async def crawl_single_resource(payload: CrawlSingleUrlRequest):
         if UrlNormalizer.is_document_url(url):
             # Download and ingest PDF
             cond_headers = await DeltaDetector.get_conditional_headers(url, session)
-            async with httpx.AsyncClient(verify=False, follow_redirects=True) as client:
+            async with httpx.AsyncClient(verify=True, follow_redirects=True) as client:
                 success, status_code, local_path, content_hash, resp_headers = await DocumentDownloader.download_file(
                     client, url, conditional_headers=cond_headers
                 )
@@ -348,13 +348,29 @@ async def crawl_single_resource(payload: CrawlSingleUrlRequest):
                 return {"status": "skipped", "reason": reason, "message": "Document content has not changed."}
 
         else:
-            # Web Page
+            # Web Page with per-hop redirect safety and TLS verification
             cond_headers = await DeltaDetector.get_conditional_headers(url, session)
-            async with httpx.AsyncClient(verify=False, follow_redirects=True) as client:
-                try:
-                    resp = await client.get(url, headers=cond_headers, timeout=20.0)
-                except Exception as e:
-                    raise HTTPException(status_code=502, detail=f"HTTP request failed: {e}")
+            async with httpx.AsyncClient(verify=True, follow_redirects=False) as client:
+                curr_url = url
+                resp = None
+                for _ in range(3):
+                    is_safe, reason = UrlNormalizer.is_safe_url(curr_url, allowed_domains=allowed_domains)
+                    if not is_safe:
+                        raise HTTPException(status_code=400, detail=f"SSRF & Security policy violation: {reason}")
+                    try:
+                        resp = await client.get(curr_url, headers=cond_headers, timeout=20.0)
+                    except Exception as e:
+                        raise HTTPException(status_code=502, detail=f"HTTP request failed: {e}")
+
+                    if resp.status_code in (301, 302, 303, 307, 308):
+                        loc = resp.headers.get("location")
+                        if not loc:
+                            break
+                        curr_url = urljoin(curr_url, loc)
+                        continue
+                    break
+                else:
+                    raise HTTPException(status_code=502, detail="Exceeded maximum redirect hops")
 
             if resp.status_code == 304:
                 return {"status": "skipped", "message": "Web page is unchanged on university server (HTTP 304)."}
@@ -461,25 +477,29 @@ async def purge_scraped_rag_data():
         try:
             if chunk_ids:
                 point_ids = [str(cid) for cid in chunk_ids]
-                for i in range(0, len(point_ids), 1000):
-                    batch = point_ids[i:i + 1000]
-                    qdrant_store.client.delete(
-                        collection_name=qdrant_store.collection_name,
-                        points_selector=batch,
-                        wait=True
-                    )
+                def _delete_points():
+                    for i in range(0, len(point_ids), 1000):
+                        batch = point_ids[i:i + 1000]
+                        qdrant_store.client.delete(
+                            collection_name=qdrant_store.collection_name,
+                            points_selector=batch,
+                            wait=True
+                        )
+                await asyncio.to_thread(_delete_points)
                 vectors_purged = len(point_ids)
 
             # Defense-in-depth: purge any vectors tagged with department="University Portal"
             try:
                 from qdrant_client.models import Filter, FieldCondition, MatchValue
-                qdrant_store.client.delete(
-                    collection_name=qdrant_store.collection_name,
-                    points_selector=Filter(
-                        must=[FieldCondition(key="department", match=MatchValue(value="University Portal"))]
-                    ),
-                    wait=True
-                )
+                def _delete_dept():
+                    qdrant_store.client.delete(
+                        collection_name=qdrant_store.collection_name,
+                        points_selector=Filter(
+                            must=[FieldCondition(key="department", match=MatchValue(value="University Portal"))]
+                        ),
+                        wait=True
+                    )
+                await asyncio.to_thread(_delete_dept)
             except Exception:
                 pass
         except Exception as q_err:
@@ -512,14 +532,15 @@ async def purge_scraped_rag_data():
 
         await session.commit()
 
-        # 5. Purge BM25 in-memory corpus and rebuild index
+        # 5. Purge BM25 in-memory corpus and rebuild index safely
         try:
             scraped_ids_set = {str(did) for did in scraped_doc_ids}
-            bm25_index.corpus = [
-                item for item in bm25_index.corpus
+            current_snapshot = list(bm25_index.corpus)
+            filtered_corpus = [
+                item for item in current_snapshot
                 if item.get("department") != "University Portal" and str(item.get("document_id")) not in scraped_ids_set
             ]
-            await asyncio.to_thread(bm25_index.build_index, bm25_index.corpus)
+            await asyncio.to_thread(bm25_index.build_index, filtered_corpus)
         except Exception as bm25_err:
             logger.warning(f"Note on BM25 corpus rebuild: {bm25_err}")
 

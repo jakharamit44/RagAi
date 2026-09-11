@@ -1,0 +1,88 @@
+{
+  "purge_rbac": {
+    "unauthenticated": {
+      "status": 401,
+      "latency_ms": 30.73
+    },
+    "student": {
+      "status": 403,
+      "latency_ms": 17.03
+    },
+    "admin": {
+      "status": 200,
+      "latency_ms": 720.02,
+      "metrics": {
+        "documents_purged": 1,
+        "chunks_purged": 1,
+        "vectors_purged": 1,
+        "context_tiers_purged": 0,
+        "manifest_entries_purged": 1,
+        "disk_files_deleted": 1,
+        "mb_freed": 0.05
+      }
+    }
+  },
+  "status_endpoint": {
+    "status": 200,
+    "latency_ms": 15.01,
+    "payload": {
+      "is_running": false,
+      "current_job_id": null,
+      "current_url": "",
+      "stats": {
+        "pages_scraped": 0,
+        "documents_downloaded": 0,
+        "skipped_unchanged": 0,
+        "errors": 0,
+        "total_urls_visited": 0,
+        "start_time": null,
+        "end_time": null
+      },
+      "activity_logs": []
+    }
+  },
+  "cleanup_endpoint": {
+    "status": 200,
+    "latency_ms": 677.66,
+    "metrics": {
+      "status": "success",
+      "bytes_freed": 58000,
+      "mb_freed": 0.06,
+      "files_deleted": 1,
+      "remaining_files": 0,
+      "protected_dirs_intact": true,
+      "errors": []
+    }
+  },
+  "data_isolation": {
+    "portal_purged": true,
+    "manifest_purged": true,
+    "manifest_count_after": 0,
+    "cs_docs_count_before": 5,
+    "cs_docs_count_after": 5,
+    "sample_courses_files_verified": 3,
+    "sample_courses_intact": true
+  },
+  "banner_snippets": {
+    "owl_carousel": [
+      "https://mdu.ac.in/Images/Banners/banner_convocation_2026.jpg"
+    ],
+    "hero_banner": [
+      "https://mdu.ac.in/assets/slider/admissions_open_btech.png"
+    ],
+    "marquee": [
+      "https://mdu.ac.in/circulars/exam_postponed_circular.jpg"
+    ],
+    "standard_img": [
+      "https://mdu.ac.in/uploads/tender_notice_2026.jpg"
+    ]
+  },
+  "ocr_caching": {
+    "call_1_latency_ms": 5654.19,
+    "call_1_cached": false,
+    "call_2_latency_ms": 2.48,
+    "call_2_cached": true,
+    "speedup_factor": 2282.1,
+    "extracted_text_preview": "MDU ADMISSION COUNSELING 2026-27\nMERITLIST REPORTING DATE: 1"
+  }
+}

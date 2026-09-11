@@ -5386,7 +5386,7 @@
             else if (l.message.includes("⚡")) color = "text-amber-200";
             else if (l.message.includes("📥")) color = "text-indigo-300";
 
-            return `<div class="flex items-start space-x-2"><span class="text-slate-500 font-mono select-none">${l.timestamp}</span><span class="${color}">${l.message}</span></div>`;
+            return `<div class="flex items-start space-x-2"><span class="text-slate-500 font-mono select-none">${escapeHtml(l.timestamp)}</span><span class="${color}">${escapeHtml(l.message)}</span></div>`;
           }).join('');
           consoleEl.scrollTop = consoleEl.scrollHeight;
         }

@@ -115,13 +115,13 @@ class BannerOCRPipeline:
         results: List[Dict[str, Any]] = []
         should_close_client = False
         if client is None:
-            client = httpx.AsyncClient(timeout=10.0, verify=False, follow_redirects=True)
+            client = httpx.AsyncClient(timeout=10.0, verify=True, follow_redirects=False)
             should_close_client = True
 
         try:
             for img_url in image_urls:
                 try:
-                    announcement = await self._process_single_image(client, img_url)
+                    announcement = await self._process_single_image(client, img_url, allowed_domains=allowed_domains)
                     if announcement:
                         results.append(announcement)
                 except Exception as ex:
@@ -132,20 +132,43 @@ class BannerOCRPipeline:
 
         return results
 
-    async def _process_single_image(self, client: httpx.AsyncClient, img_url: str) -> Optional[Dict[str, Any]]:
-        """Downloads single image, runs OCR with cache lookup, and validates textual relevance."""
-        # SSRF re-check
-        is_safe, _ = UrlNormalizer.is_safe_url(img_url)
-        if not is_safe:
+    async def _process_single_image(
+        self,
+        client: httpx.AsyncClient,
+        img_url: str,
+        allowed_domains: Optional[List[str]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Downloads single image with redirect SSRF validation, runs OCR in thread with cache lookup, and validates textual relevance."""
+        curr_url = img_url
+        domains = allowed_domains or ["mdu.ac.in"]
+
+        # Safe fetch with manual redirect resolution and per-hop SSRF validation
+        resp = None
+        for _ in range(3):
+            is_safe, _ = UrlNormalizer.is_safe_url(curr_url, allowed_domains=domains)
+            if not is_safe:
+                return None
+
+            try:
+                resp = await client.get(curr_url)
+            except Exception:
+                return None
+
+            if resp.status_code in (301, 302, 303, 307, 308):
+                loc = resp.headers.get("location")
+                if not loc:
+                    return None
+                curr_url = urljoin(curr_url, loc)
+                continue
+            break
+        else:
             return None
 
-        # Download image bytes with size guard
-        resp = await client.get(img_url)
-        if resp.status_code != 200 or len(resp.content) > self.max_image_bytes or len(resp.content) < 500:
+        if not resp or resp.status_code != 200 or len(resp.content) > self.max_image_bytes or len(resp.content) < 500:
             return None
 
         content_type = resp.headers.get("content-type", "").lower()
-        if "image" not in content_type and not any(img_url.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp"]):
+        if "image" not in content_type and not any(curr_url.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp"]):
             return None
 
         img_bytes = resp.content
@@ -157,22 +180,34 @@ class BannerOCRPipeline:
             if not cached_data.get("text"):
                 return None
             return {
-                "image_url": img_url,
-                "image_name": os.path.basename(urlparse(img_url).path) or "banner.jpg",
+                "image_url": curr_url,
+                "image_name": os.path.basename(urlparse(curr_url).path) or "banner.jpg",
                 "ocr_text": cached_data["text"],
                 "confidence": cached_data.get("confidence", 0.9),
                 "cached": True
             }
 
-        # Perform OCR
+        # Perform OCR in worker thread to prevent event loop blocking
         try:
             from PIL import Image
-            pil_img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+            import asyncio
+            Image.MAX_IMAGE_PIXELS = 16_000_000
 
-            # Run RapidOCR engine
-            ocr_res = printed_ocr.extract_text(pil_img)
+            def _decode_and_ocr(b: bytes) -> Dict[str, Any]:
+                with Image.open(io.BytesIO(b)) as raw_img:
+                    if raw_img.width * raw_img.height > 16_000_000:
+                        return {"text": "", "confidence": 0.0}
+                    converted = raw_img.convert("RGB")
+                    return printed_ocr.extract_text(converted)
+
+            ocr_res = await asyncio.to_thread(_decode_and_ocr, img_bytes)
             text = (ocr_res.get("text") or "").strip()
             confidence = ocr_res.get("confidence", 0.0)
+
+            # Bound cache size to prevent memory bloat
+            if len(self._cache) > 500:
+                for k in list(self._cache.keys())[:100]:
+                    self._cache.pop(k, None)
 
             # Informative threshold filter: require >= 15 chars and meaningful alphanumeric words
             clean_words = [w for w in re.findall(r"\w+", text) if len(w) > 1]
@@ -183,14 +218,14 @@ class BannerOCRPipeline:
             self._cache[img_hash] = {"text": text, "confidence": confidence}
 
             return {
-                "image_url": img_url,
-                "image_name": os.path.basename(urlparse(img_url).path) or "banner.jpg",
+                "image_url": curr_url,
+                "image_name": os.path.basename(urlparse(curr_url).path) or "banner.jpg",
                 "ocr_text": text,
                 "confidence": confidence,
                 "cached": False
             }
         except Exception as e:
-            logger.debug(f"Failed to OCR image {img_url}: {e}")
+            logger.debug(f"Failed to OCR image {curr_url}: {e}")
             self._cache[img_hash] = {"text": "", "confidence": 0.0}
             return None
 

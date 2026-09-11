@@ -57,6 +57,12 @@ class DocumentDownloader:
         try:
             async with client.stream("GET", url, headers=headers, follow_redirects=True, timeout=30.0) as resp:
                 resp_headers = dict(resp.headers)
+                # Re-validate final redirected URL against SSRF
+                is_safe_target, target_reason = UrlNormalizer.is_safe_url(str(resp.url))
+                if not is_safe_target:
+                    logger.warning(f"Download redirect target {resp.url} failed SSRF check: {target_reason}")
+                    return False, 400, None, None, resp_headers
+
                 if resp.status_code == 304:
                     return False, 304, None, None, resp_headers
 
