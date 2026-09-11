@@ -33,6 +33,10 @@ class UniversityWebCrawler:
             "skipped_unchanged": 0,
             "errors": 0,
             "total_urls_visited": 0,
+            "current_batch": 1,
+            "batch_size": 50,
+            "batch_urls_processed": 0,
+            "queue_remaining": 0,
             "start_time": None,
             "end_time": None,
         }
@@ -54,18 +58,12 @@ class UniversityWebCrawler:
             logger.info(message)
 
     def stop(self):
-        """Signals crawler to halt gracefully."""
-        if self.is_running:
-            self.stop_requested = True
-            self.log_activity("Crawler halt requested by operator.", level="warning")
+        """Signals crawler loop to stop."""
+        self.stop_requested = True
+        self.log_activity("Halt signal received. Finishing in-flight requests and pausing crawl loop...", level="warning")
 
     async def crawl_job(self, job_id: str, max_pages_override: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Executes a crawl run for a configured WebScrapeJob.
-        """
-        if self.is_running:
-            return {"status": "error", "message": "Crawler is already active running a job."}
-
+        """Executes crawl run for a specific WebScrapeJob in automatic continuous batches."""
         self.is_running = True
         self.stop_requested = False
         self.current_job_id = job_id
@@ -75,10 +73,16 @@ class UniversityWebCrawler:
             "skipped_unchanged": 0,
             "errors": 0,
             "total_urls_visited": 0,
+            "current_batch": 1,
+            "batch_size": max_pages_override or 50,
+            "batch_urls_processed": 0,
+            "queue_remaining": 0,
             "start_time": datetime.utcnow().isoformat(),
             "end_time": None,
         }
-        self.log_activity(f"Starting web crawl run for job ID: {job_id}")
+        self.activity_logs.clear()
+
+        self.log_activity(f"Starting continuous batched web crawl for job ID: {job_id}")
 
         async with async_session_factory() as session:
             job = await session.get(WebScrapeJob, job_id)
@@ -101,7 +105,7 @@ class UniversityWebCrawler:
                 allowed_domains.append(base_root)
 
             max_depth = job.max_depth or 3
-            max_pages = max_pages_override or job.max_pages or 300
+            batch_size = max_pages_override or job.max_pages or 50
             auto_ingest = job.auto_ingest
 
         try:
@@ -110,7 +114,7 @@ class UniversityWebCrawler:
                 seeds=seed_urls,
                 allowed_domains=allowed_domains,
                 max_depth=max_depth,
-                max_pages=max_pages,
+                batch_size=batch_size,
                 auto_ingest=auto_ingest
             )
         except Exception as e:
@@ -133,11 +137,19 @@ class UniversityWebCrawler:
             if clean_res.get("files_deleted", 0) > 0:
                 self.log_activity(f"🧹 Post-crawl sweep: Purged {clean_res['files_deleted']} temporary files ({clean_res['mb_freed']} MB reclaimed).")
 
-            self.log_activity(
-                f"Crawl completed. Scraped {self.stats['pages_scraped']} pages, "
-                f"Downloaded {self.stats['documents_downloaded']} docs, "
-                f"Skipped {self.stats['skipped_unchanged']} unchanged."
-            )
+            if self.stop_requested:
+                self.log_activity(
+                    f"🛑 Crawl halted by user. Processed {self.stats['current_batch']} batches, "
+                    f"Total URLs visited: {self.stats['total_urls_visited']} ({self.stats['pages_scraped']} pages, "
+                    f"{self.stats['documents_downloaded']} docs, {self.stats['skipped_unchanged']} skipped)."
+                )
+            else:
+                self.log_activity(
+                    f"🎉 All batches completed. Processed {self.stats['current_batch']} batches, "
+                    f"Scraped {self.stats['pages_scraped']} pages, "
+                    f"Downloaded {self.stats['documents_downloaded']} docs, "
+                    f"Skipped {self.stats['skipped_unchanged']} unchanged."
+                )
 
         return self.stats
 
@@ -147,7 +159,7 @@ class UniversityWebCrawler:
         seeds: List[str],
         allowed_domains: List[str],
         max_depth: int,
-        max_pages: int,
+        batch_size: int,
         auto_ingest: bool
     ):
         queue: deque = deque()
@@ -159,6 +171,13 @@ class UniversityWebCrawler:
                 queue.append((norm, 0))
                 visited.add(norm)
 
+        # Configure continuous batching
+        batch_size = max(5, batch_size or 50)
+        self.stats["batch_size"] = batch_size
+        self.stats["current_batch"] = 1
+        self.stats["batch_urls_processed"] = 0
+        self.stats["queue_remaining"] = len(queue)
+
         semaphore = asyncio.Semaphore(3)  # Polite concurrency
         client_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) UnivRAG-Scraper/1.1 (Academic Indexer)",
@@ -166,11 +185,18 @@ class UniversityWebCrawler:
             "Accept-Encoding": "gzip, deflate",
         }
 
+        self.log_activity(
+            f"🚀 [Continuous Batched Crawl Initiated] Batch size: {batch_size} links/batch. "
+            f"Initial queue: {len(queue)} seed URLs. Auto-advancing across batches until discovery queue is complete."
+        )
+
         async with httpx.AsyncClient(headers=client_headers, timeout=20.0, verify=True, follow_redirects=True) as client:
-            while queue and not self.stop_requested and self.stats["total_urls_visited"] < max_pages:
+            while queue and not self.stop_requested:
                 current_url, depth = queue.popleft()
                 self.current_url = current_url
                 self.stats["total_urls_visited"] += 1
+                self.stats["batch_urls_processed"] += 1
+                self.stats["queue_remaining"] = len(queue)
 
                 async with semaphore:
                     try:
@@ -190,6 +216,51 @@ class UniversityWebCrawler:
                     except Exception as e:
                         self.stats["errors"] += 1
                         self.log_activity(f"Error processing {current_url}: {e}", level="error")
+
+                self.stats["queue_remaining"] = len(queue)
+
+                # Check if current batch is finished
+                if self.stats["batch_urls_processed"] >= batch_size and queue and not self.stop_requested:
+                    batch_num = self.stats["current_batch"]
+                    rem = len(queue)
+
+                    self.log_activity(
+                        f"🏁 [Batch {batch_num} Finished] Successfully processed {batch_size} links in this batch "
+                        f"(Cumulative: {self.stats['total_urls_visited']} visited, {self.stats['pages_scraped']} pages, "
+                        f"{self.stats['documents_downloaded']} docs, {self.stats['skipped_unchanged']} skipped). "
+                        f"{rem} URLs pending in discovery queue."
+                    )
+
+                    # Checkpoint job stats to SQLite
+                    try:
+                        async with async_session_factory() as session:
+                            job = await session.get(WebScrapeJob, job_id)
+                            if job:
+                                job.stats = json.dumps(self.stats)
+                                await session.commit()
+                    except Exception:
+                        pass
+
+                    # Clean memory & caches between batches
+                    import gc
+                    gc.collect()
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except Exception:
+                        pass
+
+                    # Auto-advance to the next batch
+                    next_batch_num = batch_num + 1
+                    self.stats["current_batch"] = next_batch_num
+                    self.stats["batch_urls_processed"] = 0
+
+                    self.log_activity(
+                        f"🔄 [Auto-Starting Batch {next_batch_num}] Auto-advancing to next batch ({min(batch_size, rem)} links) from discovery queue..."
+                    )
+                    # Brief polite batch cooldown
+                    await asyncio.sleep(1.0)
 
     async def _process_single_url(
         self,

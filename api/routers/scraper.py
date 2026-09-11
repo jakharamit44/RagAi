@@ -36,7 +36,7 @@ class CreateJobRequest(BaseModel):
     allowed_domains: str = Field(default="mdu.ac.in", description="Comma-separated allowed domains")
     url_patterns: Optional[str] = Field(default=None, description="Optional regex/glob inclusion pattern")
     max_depth: int = Field(default=3, ge=1, le=10, description="Max BFS crawling depth")
-    max_pages: int = Field(default=300, ge=1, le=2000, description="Max pages to crawl per run")
+    max_pages: int = Field(default=50, ge=1, le=2000, description="Continuous batch size: number of links per auto-advancing batch (default 50)")
     crawl_interval_minutes: int = Field(default=360, ge=15, description="Schedule interval in minutes")
     auto_ingest: bool = Field(default=True, description="Automatically chunk, embed, and index into vector DB")
 
@@ -46,7 +46,7 @@ class UpdateJobRequest(BaseModel):
     seed_urls: Optional[List[str]] = None
     allowed_domains: Optional[str] = None
     max_depth: Optional[int] = Field(default=None, ge=1, le=10)
-    max_pages: Optional[int] = Field(default=None, ge=1, le=2000)
+    max_pages: Optional[int] = Field(default=None, ge=1, le=2000, description="Continuous batch size (links per batch)")
     crawl_interval_minutes: Optional[int] = Field(default=None, ge=5, le=10080)
     auto_ingest: Optional[bool] = None
     is_active: Optional[bool] = None
@@ -178,7 +178,7 @@ async def delete_scraper_job(job_id: str):
 
 
 @router.post("/jobs/{job_id}/run")
-async def trigger_crawl_job(job_id: str, background_tasks: BackgroundTasks, max_pages: Optional[int] = Query(None)):
+async def trigger_crawl_job(job_id: str, background_tasks: BackgroundTasks, max_pages: Optional[int] = Query(None, description="Continuous batch size override (links per batch)")):
     """Trigger an immediate crawl run for the specified job in background."""
     if crawler.is_running:
         raise HTTPException(

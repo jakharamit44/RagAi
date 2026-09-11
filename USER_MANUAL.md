@@ -88,7 +88,7 @@
      - 3.11.8 [Seed URLs Textarea (crawler-seed-urls)](#3118-seed-urls-textarea-crawler-seed-urls)
      - 3.11.9 [Allowed Domains Input (crawler-allowed-domains)](#3119-allowed-domains-input-crawler-allowed-domains)
      - 3.11.10 [Maximum Crawl Depth Number Box (crawler-max-depth)](#31110-maximum-crawl-depth-number-box-crawler-max-depth)
-     - 3.11.11 [Maximum Pages Ceiling Number Box (crawler-max-pages)](#31111-maximum-pages-ceiling-number-box-crawler-max-pages)
+     - 3.11.11 [Batch Size (Links per batch) Number Box (cfg-job-max-pages)](#31111-batch-size-links-per-batch-number-box-cfg-job-max-pages)
      - 3.11.12 [Automated Crawl Interval Number Box (crawler-interval)](#31112-automated-crawl-interval-number-box-crawler-interval)
      - 3.11.13 ["Auto-Ingest Discovered Documents" Toggle Checkbox (crawler-auto-ingest)](#31113-auto-ingest-discovered-documents-toggle-checkbox-crawler-auto-ingest)
      - 3.11.14 ["Save Configuration" Button](#31114-save-configuration-button)
@@ -962,9 +962,16 @@ Tab 7 configures and monitors the automated university web crawler. The scraper 
 - **UI Identifier:** `<input id="cfg-job-depth" type="number" min="1" max="5" value="3">`
 - **Purpose & Use Case:** Defines link depth traversal. Depth `1` inspects only seed URLs; depth `2` inspects pages linked directly from the seed URLs.
 
-#### 3.11.11 Maximum Pages Ceiling Number Box (`cfg-job-max-pages`)
-- **UI Identifier:** `<input id="cfg-job-max-pages" type="number" min="10" max="1000" value="300">`
-- **Purpose & Use Case:** Caps the total number of pages crawled per run to prevent runaway crawls.
+#### 3.11.11 Batch Size (Links per batch) Number Box (`cfg-job-max-pages`)
+- **UI Identifier:** `<input id="cfg-job-max-pages" type="number" min="5" max="1000" value="50">`
+- **Continuous Auto-Advancing Batch Architecture:** Unlike legacy crawlers that permanently halt when reaching an arbitrary page limit, this setting configures the **continuous batch size** (default `50 links`).
+  - The crawler processes the first batch of 50 links (visiting web pages, downloading PDFs, running banner OCR, and vectorizing content).
+  - Upon completing the 50-link threshold, it flushes telemetry, saves an intermediate checkpoint to SQLite, executes memory cleanup (`gc.collect()` and `torch.cuda.empty_cache()`), and announces in the live console:
+    `🏁 [Batch N Finished] Successfully processed 50 links in this batch... Queue has X URLs pending.`
+  - The crawler **automatically advances to the next batch of 50 links** from the discovery queue without stopping:
+    `🔄 [Auto-Starting Batch N+1] Auto-advancing to next batch (50 links) from discovery queue...`
+  - This cycle repeats continuously through all discovered university subdomains and documents until the entire discovery queue is exhausted or the administrator clicks **Stop Crawl**.
+  - **Live Telemetry Pill:** The status pill dynamically reflects the active batch state, e.g., `● Batch 2 (14/50) | Queue: 382`.
 
 #### 3.11.12 Automated Crawl Interval Number Box (`cfg-job-interval`)
 - **UI Identifier:** `<input id="cfg-job-interval" type="number" min="15" max="10080" value="360">`

@@ -1384,8 +1384,8 @@
                 <input type="number" id="cfg-job-depth" min="1" max="5" required class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono">
               </div>
               <div>
-                <label class="block font-semibold text-slate-600 mb-1">Max Pages</label>
-                <input type="number" id="cfg-job-max-pages" min="10" max="1000" required class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono">
+                <label class="block font-semibold text-slate-600 mb-1">Batch Size (Links per batch)</label>
+                <input type="number" id="cfg-job-max-pages" min="5" max="1000" required class="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono" title="Batch size: crawler continuously auto-advances across batches of this size until queue is complete">
               </div>
             </div>
             <div>
@@ -5234,7 +5234,7 @@
           if (elSeeds) elSeeds.value = (j.seed_urls || []).join('\n');
           if (elDomains) elDomains.value = j.allowed_domains || "mdu.ac.in";
           if (elDepth) elDepth.value = j.max_depth || 3;
-          if (elPages) elPages.value = j.max_pages || 300;
+          if (elPages) elPages.value = j.max_pages || 50;
           if (elInt) elInt.value = j.crawl_interval_minutes || 360;
           if (elAuto) elAuto.checked = j.auto_ingest !== false;
           const elOcr = document.getElementById('cfg-job-ocr-banners');
@@ -5351,11 +5351,19 @@
         const btnStop = document.getElementById('btn-stop-crawl');
         const curUrl = document.getElementById('current-url-display');
 
+        const s = d.stats || {};
         if (pill) {
-          pill.className = isRunning
-            ? "text-xs px-2.5 py-0.5 rounded-full bg-emerald-900 text-emerald-300 font-mono font-bold border border-emerald-700 animate-pulse"
-            : "text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono font-bold border border-slate-700";
-          pill.textContent = isRunning ? "● Crawling Active" : "● Engine Idle";
+          if (isRunning) {
+            const bNum = s.current_batch || 1;
+            const bProc = s.batch_urls_processed || 0;
+            const bSize = s.batch_size || 50;
+            const qRem = s.queue_remaining !== undefined ? s.queue_remaining : 0;
+            pill.className = "text-xs px-2.5 py-0.5 rounded-full bg-emerald-900 text-emerald-300 font-mono font-bold border border-emerald-700 animate-pulse";
+            pill.textContent = `● Batch ${bNum} (${bProc}/${bSize}) | Queue: ${qRem}`;
+          } else {
+            pill.className = "text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono font-bold border border-slate-700";
+            pill.textContent = "● Engine Idle";
+          }
         }
 
         if (badge) {
@@ -5369,7 +5377,6 @@
         if (btnStop) btnStop.disabled = !isRunning;
         if (curUrl) curUrl.textContent = isRunning ? (d.current_url || "Traversing link queue...") : "Idle";
 
-        const s = d.stats || {};
         if (s.total_urls_visited !== undefined) document.getElementById('scraper-metric-visited').textContent = s.total_urls_visited;
         if (s.pages_scraped !== undefined) document.getElementById('scraper-metric-pages').textContent = s.pages_scraped;
         if (s.documents_downloaded !== undefined) document.getElementById('scraper-metric-docs').textContent = s.documents_downloaded;
