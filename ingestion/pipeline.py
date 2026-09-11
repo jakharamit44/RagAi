@@ -114,6 +114,13 @@ class IngestionPipeline:
                 f"dept={tags.get('department')}, course={tags.get('course')}"
             )
 
+            # Synchronize OpenViking tiered context for the newly ingested document
+            try:
+                from api.context.tiered_engine import tiered_engine
+                asyncio.create_task(tiered_engine.sync_database_tiers())
+            except Exception as e:
+                logger.warning(f"Could not trigger tiered engine sync after ingesting {filename}: {e}")
+
             return {
                 "status": "success",
                 "document_id": str(doc_record.id),

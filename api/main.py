@@ -18,6 +18,8 @@ from api.routers.metrics import router as metrics_router
 from api.routers.admin_governance import router as admin_governance_router
 from api.routers.scraper import router as scraper_router
 from api.routers.brain import router as brain_router, alias_router as brain_alias_router
+from api.routers.context import router as context_router
+from api.context.tiered_engine import tiered_engine
 from api.scraper.scheduler import scraper_scheduler
 from db.session import init_db, async_session_factory
 from db.models import Chunk, Document
@@ -141,6 +143,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not start scraper scheduler: {e}")
 
+    # Synchronize OpenViking-style Tiered Context Filesystem
+    try:
+        asyncio.create_task(tiered_engine.sync_database_tiers())
+        logger.info("Triggered asynchronous initialization of OpenViking Tiered Context Filesystem.")
+    except Exception as e:
+        logger.warning(f"Could not synchronize tiered context on startup: {e}")
+
     logger.info("University RAG API is ready to receive queries.")
     yield
     logger.info("Shutting down University RAG API Service...")
@@ -259,6 +268,7 @@ app.include_router(admin_governance_router)
 app.include_router(scraper_router)
 app.include_router(brain_router)
 app.include_router(brain_alias_router)
+app.include_router(context_router)
 
 
 if __name__ == "__main__":

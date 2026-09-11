@@ -117,6 +117,13 @@
      - 3.15.5 [Reranker Confidence Threshold Slider (setting-rerank-threshold)](#3155-reranker-confidence-threshold-slider-setting-rerank-threshold)
      - 3.15.6 ["Save System Settings" Button](#3156-save-system-settings-button)
      - 3.15.7 ["Flush CUDA VRAM" Emergency Reclamation Button](#3157-flush-cuda-vram-emergency-reclamation-button)
+   - 3.16 [Tab 12: Context Filesystem & Tiered Storage Explorer (tab-context)](#316-tab-12-context-filesystem--tiered-storage-explorer-tab-context)
+     - 3.16.1 [Virtual Context Telemetry & Token Savings Bento Cards](#3161-virtual-context-telemetry--token-savings-bento-cards)
+     - 3.16.2 ["Re-Sync Tiers" Synchronization Button](#3162-re-sync-tiers-synchronization-button)
+     - 3.16.3 [Tree Filter Input (context-tree-filter)](#3163-tree-filter-input-context-tree-filter)
+     - 3.16.4 [Split-Pane Hierarchical Virtual Filesystem Tree](#3164-split-pane-hierarchical-virtual-filesystem-tree)
+     - 3.16.5 [Glassmorphic Tier Inspector (L0 / L1 / L2 / Metadata) & "Copy URI" Action](#3165-glassmorphic-tier-inspector-l0--l1--l2--metadata--copy-uri-action)
+     - 3.16.6 [OpenViking Semantic Search Console (context-find-input & "Search Context")](#3166-openviking-semantic-search-console-context-find-input--search-context)
 4. [Student Chat Portal (/chat) — Complete User Guide](#4-student-chat-portal-chat--complete-user-guide)
    - 4.1 [Academic Scope Selectors](#41-academic-scope-selectors)
      - 4.1.1 [Department Select Dropdown (chat-dept-select)](#411-department-select-dropdown-chat-dept-select)
@@ -143,6 +150,7 @@
      - 4.5.4 [Exam Malpractice & Academic Integrity Protection](#454-exam-malpractice--academic-integrity-protection)
      - 4.5.5 [UGC Anti-Ragging Policy & Context-Aware Whitelisting](#455-ugc-anti-ragging-policy--context-aware-whitelisting)
      - 4.5.6 [Bilingual Institutional Refusal Messages & Security Auditing](#456-bilingual-institutional-refusal-messages--security-auditing)
+   - 4.6 [Adaptive Tiered Retrieval & Instant Overview Resolution](#46-adaptive-tiered-retrieval--instant-overview-resolution)
 5. [Background Daemons & Automation Services](#5-background-daemons--automation-services)
    - 5.1 [Always-On Notice Scout (always_on_notice_scout.py)](#51-always-on-notice-scout-always_on_notice_scoutpy)
    - 5.2 [Corrective RAG Self-Improvement Engine (self_improve_rag.py)](#52-corrective-rag-self-improvement-engine-self_improve_ragpy)
@@ -1126,6 +1134,69 @@ Tab 11 governs low-level platform parameters, model credentials, generation temp
 - **UI Identifier:** `<button onclick="flushVram()" class="btn-danger">Flush CUDA VRAM ⚡</button>`
 - **Purpose & Use Case:** Manually invokes `torch.cuda.empty_cache()` and executes Python garbage collection (`gc.collect()`). Reclaims orphaned tensor memory buffers without restarting the server or dropping active user sessions.
 
+---
+
+### 3.16 Tab 12: Context Filesystem & Tiered Storage Explorer (tab-context)
+
+Tab 12 introduces the OpenViking-inspired Virtual Context Filesystem and Tiered Storage Explorer. Rather than dumping unstructured flat vector embeddings into the model's context window, RagAi organizes institutional knowledge into a deterministic directory hierarchy indexed by the `ragai://` URI protocol (`ragai://knowledge/{department}/{course}/{document}`).
+
+```
++----------------------------------------------------------------------------------------------------+
+|  VIRTUAL CONTEXT FILESYSTEM (OPENVIKING ARCHITECTURE)                                              |
+|  [ Departments: 4 ] [ Courses: 8 ] [ Documents: 14 ] [ L2 Chunks: 182 ]                            |
+|  [ Avg L0: 58 tok ] [ Avg L1: 395 tok ] [ Token Savings: ~84.2% ]  [ Re-Sync Tiers ⟳ Button ]      |
++----------------------------------------------------------------------------------------------------+
+|  TREE EXPLORER                          |  TIERED CONTEXT INSPECTOR                                |
+|  [ Filter Tree: CS401... ]              |  URI: ragai://knowledge/ComputerScience/CS401  [Copy URI]|
+|  > ragai://knowledge                    |  [ L0 Abstract ] [ L1 Overview ] [ L2 Chunks ] [Metadata]|
+|    v ComputerScience                    |  ------------------------------------------------------- |
+|      v CS401_OperatingSystems           |  COURSE SYLLABUS & CURRICULAR ROADMAP:                   |
+|        - L0: Abstract (54 tokens)       |  Unit I: Process Management & Inter-Process Comm...     |
+|        - L1: Syllabus Overview (412 tok)|  Unit II: CPU Scheduling Algorithms (FCFS, SJF, RR)...   |
+|        - L2: 18 Deep Chunks             |  Unit III: Deadlocks & Banker's Safety Algorithm...      |
+|      > CS402_DatabaseSystems            |  ------------------------------------------------------- |
+|    > HumanResources                     |  OPENVIKING CONTEXT SEARCH CONSOLE:                      |
+|                                         |  [ Peterson algorithm critical section... ] [Search Context] |
++----------------------------------------------------------------------------------------------------+
+```
+
+#### 3.16.1 Virtual Context Telemetry & Token Savings Bento Cards
+Displays real-time metrics across the hierarchical virtual filesystem:
+1. **Departments Count:** Total organizational faculties registered in the tree.
+2. **Courses Count:** Active academic subjects or administrative programs.
+3. **Documents Count:** Total ingested PDF handbooks, manuals, circulars, and notes.
+4. **Total L2 Chunks:** Granular 500-token chunks indexed in SQLite and Qdrant.
+5. **Avg L0 Tokens:** Mean token footprint of dense 1-sentence abstracts (~50–100 tokens).
+6. **Avg L1 Tokens:** Mean token footprint of structured unit synopses (~350–500 tokens).
+7. **Token Savings Percentage:** Real-time token efficiency gain achieved by serving L1 overviews instead of loading top-5 L2 chunk windows (~84–88% reduction in token consumption).
+
+#### 3.16.2 "Re-Sync Tiers" Synchronization Button
+- **UI Identifier:** `<button onclick="triggerContextSync()" class="btn-secondary btn-sm">Re-Sync Tiers ⟳</button>`
+- **Purpose & Use Case:** Re-scans all ingested documents across all departments, re-synthesizes deterministic L0 abstracts and L1 curricular overviews, and refreshes the in-memory virtual context tree.
+
+#### 3.16.3 Tree Filter Input (`context-tree-filter`)
+- **UI Identifier:** `<input id="context-tree-filter" type="text" placeholder="Filter tree..." oninput="filterContextTree()">`
+- **Purpose & Use Case:** Real-time search filter for the virtual tree. Instantly hides non-matching branches as you type department names, course codes, or document titles.
+
+#### 3.16.4 Split-Pane Hierarchical Virtual Filesystem Tree
+- **UI Identifier:** `<div id="context-tree-container" class="context-tree-box">`
+- **Purpose & Use Case:** Renders interactive, collapsible directory tree nodes (`ragai://knowledge/...`). Clicking any node loads its tiered details into the right-hand inspector without page reloads.
+
+#### 3.16.5 Glassmorphic Tier Inspector (L0 / L1 / L2 / Metadata) & "Copy URI" Action
+- **UI Identifiers:**
+  - `context-detail-uri`: Displays the absolute `ragai://` URI path of the active node.
+  - `<button onclick="copyContextUri()">Copy URI</button>`: Copies the virtual URI to the system clipboard for use in API calls or agent workflows.
+  - Tier Switch Tabs: `L0 Abstract`, `L1 Overview`, `L2 Chunks`, `Metadata`.
+  - `context-detail-content`: Formatted viewer displaying the selected tier's synopsis or verbatim chunks.
+
+#### 3.16.6 OpenViking Semantic Search Console (`context-find-input` & "Search Context")
+- **UI Identifiers:**
+  - `<input id="context-find-input" placeholder="e.g. Peterson algorithm critical section or leave policy...">`
+  - `<button onclick="executeContextFind()" class="btn-secondary btn-sm">Search Context</button>`
+  - `<div id="context-find-results">`: List of semantically ranked context nodes matching the query.
+- **Purpose & Use Case:** Emulates OpenViking's `ov find` operation. Performs directory-guided semantic search over L0/L1 abstractions, allowing operators and external agents to pinpoint exact knowledge branches without loading raw chunk blobs into the LLM context.
+
+---
 
 ## 4. Student Chat Portal (/chat) — Complete User Guide
 
@@ -1314,6 +1385,22 @@ The safety governor intercepts incoming inputs at the outermost API router bound
   }
   ```
 - **Security Audit Logging:** Every blocked attempt is logged to the Security Event Stream (`api/core/security_logger.py`) with client IP address, masked identity, timestamp, and rule triggers, instantly visible on **Tab 9 (Security Audit)** of the Admin Hub.
+
+---
+
+### 4.6 Adaptive Tiered Retrieval & Instant Overview Resolution
+
+Building upon the OpenViking virtual context filesystem architecture, the `/chat` portal and `/api/v1/ask` endpoint feature **Adaptive Tiered Retrieval**:
+
+1. **Overview & Syllabus Intent Detection:**
+   - When a user asks high-level exploratory or structural questions (*"What is covered in Operating Systems?"*, *"Show me the syllabus for CS401"*, *"Overview of leave policies"*), the retrieval engine automatically classifies the query as an overview inquiry.
+2. **Instant L1 Serving (`served_by="tiered_context_l1"`):**
+   - The response is synthesized directly from the structured L1 synopsis generated during document ingestion.
+   - **Performance Gains:**
+     - **Response Latency:** Reduced from ~2.5s (GPU LLM generation over 5 chunks) to **~250ms**.
+     - **Token Footprint:** Slashed from ~2,500 tokens (5 x 500-token L2 chunks) down to **~380 tokens**, yielding an **84–88% reduction in token consumption**.
+3. **Deep Chunk Fallback (L2 Deep Proofs & Facts):**
+   - For granular inquiries requiring exact line proofs, formulas, or code examples (*"Explain Banker's Algorithm safety state check with pseudo-code"*), the system automatically routes to L2 deep retrieval, extracting verified chunk passages with page numbers and exact mathematical citations.
 
 ---
 

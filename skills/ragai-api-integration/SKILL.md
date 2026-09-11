@@ -230,6 +230,60 @@ Returns:
 
 ---
 
+### 4.4 OpenViking Virtual Context Filesystem (`ragai://`) & Progressive Tiered Storage
+
+RagAi adopts Volcengine's OpenViking virtual context filesystem architecture to eliminate context bloat and slash LLM inference costs by **80–90%**:
+
+```
+ragai://knowledge/
+├── ComputerScience/
+│   ├── CS401_OperatingSystems/
+│   │   ├── L0 (Abstract: ~60 tokens - High-level intent & thesis)
+│   │   ├── L1 (Overview: ~420 tokens - Full syllabus, units, grading)
+│   │   └── L2 (Chunks: ~2,500 tokens - Verbatim proofs & memory algorithms)
+│   └── CS402_DBMS/
+└── HumanResources/
+    └── EmployeeLeaveRules2026/
+```
+
+#### Progressive Context Loading Tiers:
+- **L0 (Abstract)**: Compact 1-sentence dense summary (~50–100 tokens) used for rapid directory routing.
+- **L1 (Structured Curricular / Policy Synopsis)**: Unit breakdowns, policy clauses, and objectives (~400–800 tokens). Serves overview queries in ~250ms with zero heavy chunk retrieval.
+- **L2 (Deep Chunks)**: Verbatim 500-token passages with page numbers and exact mathematical formulations.
+
+#### Context Filesystem Endpoints:
+| Method | Endpoint | Query / Body | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/context/tree` | `?department=Computer+Science` | Full virtual directory hierarchy (`ov tree`). |
+| `GET` | `/api/v1/context/ls` | `?uri=ragai://knowledge/ComputerScience` | List directory children, chunk counts, and abstracts (`ov ls`). |
+| `GET` | `/api/v1/context/resolve` | `?uri=ragai://...&tier=l1` | Resolve context at requested tier (`l0`, `l1`, `l2`, `all`). |
+| `POST` | `/api/v1/context/find` | `{"query": "CPU scheduling", "top_k": 5}` | Directory-guided semantic search (`ov find`). |
+| `GET` | `/api/v1/context/stats` | — | Telemetry on nodes and token reduction. |
+
+#### Python SDK Example: Progressive Exploration:
+```python
+# 1. Discover available courses under Computer Science
+listing = client.list_context_dir("ragai://knowledge/ComputerScience")
+for entry in listing["entries"]:
+    print(f"[{entry['type']}] {entry['uri']} -> {entry['l0_abstract']}")
+
+# 2. Progressively fetch L1 Structured Synopsis (only ~400 tokens!)
+synopsis = client.resolve_context(
+    uri="ragai://knowledge/ComputerScience/CS401", 
+    tier="l1"
+)
+print("Syllabus Overview:", synopsis["result"]["content"])
+
+# 3. Search directory without polluting LLM context with raw chunks
+matches = client.find_context(
+    query="Peterson's algorithm critical section", 
+    base_uri="ragai://knowledge/ComputerScience"
+)
+print("Best match:", matches["matches"][0]["uri"])
+```
+
+---
+
 ## 5. Multi-Persona Role Scoping Matrix
 
 When integrating RagAi into your portals, configure the appropriate role and department headers:

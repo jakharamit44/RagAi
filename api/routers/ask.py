@@ -284,6 +284,43 @@ async def ask_question(
             served_by="cache"
         )
 
+    # 3.9. OpenViking-Inspired Adaptive Tiered Context Check (L1 Overview fast-path)
+    from api.context.tiered_engine import tiered_engine
+    if tiered_engine.is_overview_query(req.question):
+        l1_answer = await tiered_engine.answer_overview_query(
+            query=req.question,
+            department=target_dept,
+            course=req.course
+        )
+        if l1_answer:
+            duration_s = time.time() - start_time
+            latency_ms = duration_s * 1000
+            RAG_QUERY_TOTAL.labels(status="success", served_by="local", department=dept_label).inc()
+            RAG_QUERY_DURATION.labels(served_by="local").observe(duration_s)
+            asyncio.create_task(record_audit(req.question, served_by="tiered_context_l1", latency_ms=latency_ms, tokens=len(l1_answer["answer"].split())))
+            logger.info(f"OpenViking L1 Overview Fast-Path served for query: '{req.question[:40]}...' (Latency: {latency_ms:.2f}ms, Saved ~{l1_answer.get('tokens_saved_approx')} tokens)")
+
+            citations = [Citation(**c) for c in l1_answer.get("citations", [])]
+
+            if req.stream:
+                async def stream_l1():
+                    yield f"data: {json.dumps({'type': 'metadata', 'served_by': 'tiered_context_l1', 'uri': l1_answer.get('uri')})}\n\n"
+                    yield f"data: {json.dumps({'type': 'citations', 'citations': [c.model_dump() for c in citations]})}\n\n"
+                    words = l1_answer["answer"].split(" ")
+                    for idx, w in enumerate(words):
+                        chunk_str = w if idx == len(words) - 1 else w + " "
+                        yield f"data: {json.dumps({'type': 'token', 'delta': chunk_str})}\n\n"
+                        await asyncio.sleep(0.01)
+                    yield f"data: {json.dumps({'type': 'done', 'total_latency_ms': round((time.time() - start_time) * 1000, 2)})}\n\n"
+
+                return StreamingResponse(stream_l1(), media_type="text/event-stream")
+
+            return AskResponse(
+                answer=l1_answer["answer"],
+                citations=citations,
+                served_by="tiered_context_l1"
+            )
+
     # 4. Cache MISS -> Hybrid Scope-Filtered Retrieval with CRAG (Phase 4)
     RAG_CACHE_MISSES.inc()
     retrieval_start = time.time()

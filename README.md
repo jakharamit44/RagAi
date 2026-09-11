@@ -84,6 +84,7 @@ The platform is anchored on five inviolable architectural principles:
 
 - **Multi-Format Ingestion**: Ingests `.docx`, `.pdf`, `.txt`, `.csv`, `.xlsx`, and `.md` files with layout-aware chunking (preserving chapter headings, paragraphs, and reading flow).
 - **Cognitive AI Brain & Live Knowledge Cortex**: High-performance semantic graph engine modeling University Core, Departments, Courses, Concepts, and Documents with tri-partite cognitive memory (Semantic, Episodic, Working) and live HTML5 canvas neural visualizer.
+- **OpenViking Virtual Context Filesystem (`ragai://`) & Tiered Storage Engine**: Eliminates context bloat and slashes LLM inference costs by **80–90%** using hierarchical directory contexts (L0 Abstract: ~50-100 tok, L1 Curricular Synopsis: ~400-800 tok, L2 Deep Chunks: 500-tok verbatim). Exposes agent filesystem primitives (`tree`, `ls`, `resolve`, `find`) and instant L1 overview retrieval (~250ms latency).
 - **Indian-Context AI Safety Governor & Content Moderation**: Enterprise-grade guardrail engine filtering Hindi, Hinglish, and English profanity, casteist/communal slurs (SC/ST PoA Act), adversarial "AI teaching"/model poisoning, exam malpractice (chits, paper leaks, forgery), and UGC Anti-Ragging violations with contextual whitelisting for legitimate academic inquiries.
 - **Autonomous University Web Scraper & Crawler**: 3-tier delta change detection crawler for university portals (ETag/304, noise-filtered SHA-256, cryptographic ledger) with automated PDF streaming and temporary storage reclamation.
 - **Universal Portal Integration & Embeddable Widget**: Lightweight, zero-dependency embeddable chat widget (`ragai_chat_widget.js`), typed Python SDK, and React hooks for student portals, employee intranets, and faculty dashboards.
@@ -468,6 +469,14 @@ docker compose -f infra/docker-compose.prod.yml ps
 - **Login**: `POST /auth/login` (body: `{"external_id": "faculty_jane", "role": "faculty", "department": "ComputerScience"}`) $\rightarrow$ Returns JWT bearer token.
 - **API Key Token**: `POST /auth/token` with header `X-API-Key: dev-secret-key-rag-university`.
 - **Identity Profile**: `GET /auth/me` with header `Authorization: Bearer <token>`.
+
+### 6. OpenViking Context Filesystem & Tiered Storage (`ragai://`)
+- **Virtual Hierarchy Tree**: `GET /api/v1/context/tree?department=Computer+Science` (OpenViking `ov tree`)
+- **List Directory Children**: `GET /api/v1/context/ls?uri=ragai://knowledge` (OpenViking `ov ls`)
+- **Progressive Tier Resolution**: `GET /api/v1/context/resolve?uri=ragai://knowledge/ComputerScience/CS401&tier=l1` (OpenViking `ov read`)
+- **Directory Semantic Find**: `POST /api/v1/context/find` with body `{"query": "CPU scheduling", "top_k": 5}` (OpenViking `ov find`)
+- **Context Telemetry & Savings**: `GET /api/v1/context/stats`
+- **Synchronize Context Tiers**: `POST /api/v1/context/sync` (Requires Admin API Key)
 
 ---
 

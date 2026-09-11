@@ -43,6 +43,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     request_id = _get_request_id(request)
     code = _map_status_to_code(exc.status_code)
     category = None
+    details = None
     if isinstance(exc.detail, dict):
         if "error" in exc.detail and isinstance(exc.detail["error"], dict):
             err_obj = exc.detail["error"]

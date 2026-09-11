@@ -175,3 +175,65 @@ class RagAiClient:
         Probe cluster health (Redis, Qdrant, SQLite, Embedder, LLM Router).
         """
         return self._request("GET", "/api/v1/health")
+
+    # =========================================================================
+    # OpenViking Virtual Context Filesystem & Tiered Storage (ragai://)
+    # =========================================================================
+
+    def get_context_tree(self, department: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Retrieve the full hierarchical context tree (OpenViking `ov tree`).
+        Returns nested root -> department -> course -> document structure.
+        """
+        params = {"department": department} if department else {}
+        return self._request("GET", "/api/v1/context/tree", params=params)
+
+    def list_context_dir(self, uri: str = "ragai://knowledge") -> Dict[str, Any]:
+        """
+        List immediate directory children for a virtual `ragai://` URI (OpenViking `ov ls`).
+        Returns entries with L0 abstracts, chunk counts, and token footprints.
+        """
+        return self._request("GET", "/api/v1/context/ls", params={"uri": uri})
+
+    def resolve_context(self, uri: str, tier: str = "l1") -> Dict[str, Any]:
+        """
+        Resolve context content at a specific tier (OpenViking `ov read`).
+        Tiers:
+          - 'l0': Dense 1-sentence abstract (~50-100 tokens)
+          - 'l1': Structured curricular synopsis (~400-800 tokens, 85% savings)
+          - 'l2': Deep verbatim chunks with source citations
+          - 'all': Complete multi-tier package
+        """
+        return self._request("GET", "/api/v1/context/resolve", params={"uri": uri, "tier": tier})
+
+    def find_context(
+        self,
+        query: str,
+        base_uri: str = "ragai://knowledge",
+        top_k: int = 5
+    ) -> Dict[str, Any]:
+        """
+        Execute directory-guided semantic search (OpenViking `ov find`).
+        Discovers relevant branches without dumping raw chunks into LLM context.
+        """
+        payload = {
+            "query": query,
+            "base_uri": base_uri,
+            "top_k": top_k
+        }
+        return self._request("POST", "/api/v1/context/find", json=payload)
+
+    def get_context_stats(self) -> Dict[str, Any]:
+        """
+        Retrieve telemetry on context nodes, average token budgets, and LLM token savings.
+        """
+        return self._request("GET", "/api/v1/context/stats")
+
+    def sync_context_tiers(self, api_key: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Trigger an administrative sync of all document tiers and virtual directories.
+        Requires admin privileges (e.g. 'ragai_master_admin_key').
+        """
+        headers = {"X-API-Key": api_key} if api_key else None
+        return self._request("POST", "/api/v1/context/sync", headers=headers)
+

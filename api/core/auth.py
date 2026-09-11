@@ -236,6 +236,8 @@ async def get_optional_current_user(
         return None
     return await get_current_user(request, credentials, api_key_val)
 
+get_current_user_optional = get_optional_current_user
+
 def require_role(min_role: str):
     """
     Role-based access control dependency.

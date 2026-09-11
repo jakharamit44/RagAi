@@ -300,4 +300,40 @@ class WebScrapeManifest(Base):
     )
 
 
+class ContextTier(Base):
+    """
+    OpenViking-inspired Hierarchical Virtual Context Filesystem and Tiered Storage.
+    Maintains progressive context tiers:
+      - L0: Dense 1-sentence abstract (~50-100 tokens)
+      - L1: Structured curricular/document synopsis (~500-1500 tokens)
+      - L2: Metadata pointer to raw text chunks in the database and Qdrant.
+    Addresses resources uniformly using the `ragai://` URI protocol.
+    """
+    __tablename__ = "context_tiers"
 
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    uri = Column(String(255), unique=True, nullable=False, index=True)
+    tier_type = Column(String(50), nullable=False, index=True)  # root, department, course, document, concept
+    department = Column(String(100), nullable=True, index=True)
+    course = Column(String(100), nullable=True, index=True)
+    title = Column(Text, nullable=False)
+    document_id = Column(GUID(), ForeignKey("documents.id", ondelete="CASCADE"), nullable=True)
+
+    # Tiered Content
+    l0_abstract = Column(Text, nullable=False)
+    l1_overview = Column(Text, nullable=False)
+    l2_chunk_count = Column(Integer, default=0, nullable=False)
+    token_count_l0 = Column(Integer, default=0, nullable=False)
+    token_count_l1 = Column(Integer, default=0, nullable=False)
+
+    # Metadata for navigation
+    metadata_json = Column(Text, nullable=True)  # e.g. parent_uri, keywords, topics
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    document = relationship("Document")
+
+    __table_args__ = (
+        Index("ix_context_dept_course", "department", "course"),
+        Index("ix_context_tier_type", "tier_type"),
+    )

@@ -122,4 +122,7 @@ class LocalEmbedder:
     def embed_query(self, query: str) -> List[float]:
         return self.embed_texts([query])[0]
 
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return self.embed_texts(texts)
+
 embedder = LocalEmbedder()
