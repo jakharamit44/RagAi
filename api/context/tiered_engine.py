@@ -264,14 +264,14 @@ class TieredContextEngine:
                             tier_type="document",
                             department=dept,
                             course=course,
-                            title=doc.title or doc.file_name,
+                            title=doc.title or "Untitled Document",
                             document_id=doc.id,
                             l0_abstract=l0,
                             l1_overview=l1,
                             l2_chunk_count=len(chunks),
                             token_count_l0=tok_l0,
                             token_count_l1=tok_l1,
-                            metadata_json=json.dumps({"file_type": doc.file_type, "chunk_count": len(chunks)})
+                            metadata_json=json.dumps({"file_type": getattr(doc, "doc_type", "born_digital"), "chunk_count": len(chunks)})
                         )
                         session.add(doc_tier)
                     else:

@@ -244,13 +244,17 @@ class UniversityWebCrawler:
                     await session.commit()
 
                 if should_ingest and auto_ingest:
-                    self.log_activity(f"📥 [New Document] Indexing vectors: {url.split('/')[-1]}")
+                    self.log_activity(f"📥 [Processing Document] Verifying content: {url.split('/')[-1]}")
                     ingest_res = await ScraperIngestBridge.ingest_document_file(local_path, manifest_entry, session)
                     if ingest_res.get("status") == "success":
                         self.stats["documents_downloaded"] += 1
                         self.log_activity(f"✅ Ingested PDF: {url.split('/')[-1]} ({ingest_res.get('chunks_count', 0)} chunks)")
+                    elif ingest_res.get("status") == "skipped":
+                        self.stats["skipped_unchanged"] += 1
+                        self.log_activity(f"⚡ [Skipped Duplicate] Document content already indexed: {url.split('/')[-1]}")
                     else:
                         self.stats["errors"] += 1
+                        self.log_activity(f"⚠️ Ingest note for {url.split('/')[-1]}: {ingest_res.get('message', 'Pipeline skipped')}", level="warning")
                 else:
                     self.stats["skipped_unchanged"] += 1
                     self.log_activity(f"⚡ [Unchanged Hash] Skipped duplicate document: {url.split('/')[-1]}")
