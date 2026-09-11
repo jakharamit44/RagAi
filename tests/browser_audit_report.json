@@ -1,0 +1,76 @@
+{
+  "admin_tabs": {
+    "tab-brain": {
+      "label": "Tab 0: Cognitive AI Brain & Live Neural Visualizer",
+      "new_errors": 0,
+      "status": "PASS"
+    },
+    "tab-context": {
+      "label": "Tab 12: Context Filesystem & OpenViking Tiered Storage",
+      "new_errors": 0,
+      "status": "PASS"
+    },
+    "tab-ingest": {
+      "label": "Tab 1: Ingest & Watched Folders",
+      "new_errors": 0,
+      "status": "PASS"
+    },
+    "tab-pipeline": {
+      "label": "Tab 2: Ingestion Pipeline & Queue Monitor",
+      "new_errors": 0,
+      "status": "PASS"
+    },
+    "tab-failed": {
+      "label": "Tab 3: Failed Ingestions & Diagnostics",
+      "new_errors": 0,
+      "status": "PASS"
+    },
+    "tab-docs": {
+      "label": "Tab 4: Indexed Document Library",
+      "new_errors": 0,
+      "status": "PASS"
+    },
+    "tab-apikeys": {
+      "label": "Tab 5: API Key Lifecycle & RBAC Management",
+      "new_errors": 0,
+      "status": "PASS"
+    },
+    "tab-urls": {
+      "label": "Tab 6: URL Access Control & SSRF Firewall",
+      "new_errors": 0,
+      "status": "PASS"
+    },
+    "tab-scraper": {
+      "label": "Tab 7: Automated Web Scraper & Notice Crawler",
+      "new_errors": 0,
+      "status": "PASS"
+    },
+    "tab-manifest": {
+      "label": "Tab 8: Cryptographic File Integrity Manifest",
+      "new_errors": 0,
+      "status": "PASS"
+    },
+    "tab-security": {
+      "label": "Tab 9: Security Audit & Threat Monitoring",
+      "new_errors": 0,
+      "status": "PASS"
+    },
+    "tab-diagnostics": {
+      "label": "Tab 10: Corrective RAG Diagnostics & Self-Tuning",
+      "new_errors": 0,
+      "status": "PASS"
+    },
+    "tab-settings": {
+      "label": "Tab 11: System Settings & Hardware Management",
+      "new_errors": 0,
+      "status": "PASS"
+    }
+  },
+  "chat_portal_errors": 0,
+  "total_console_errors": 0,
+  "total_unhandled_exceptions": 0,
+  "total_failed_requests": 0,
+  "errors": [],
+  "exceptions": [],
+  "failed_requests": []
+}
