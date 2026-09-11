@@ -2239,12 +2239,14 @@
 
     // Authentication token helper
     function getAuthHeaders() {
-      const token = localStorage.getItem("rag_admin_token") || "dev-secret-key-rag-university";
+      const token = localStorage.getItem("rag_admin_token") || "";
       const headers = { "Content-Type": "application/json" };
-      if (token.startsWith("rag_") || token.includes("dev-secret-key")) {
-        headers["X-API-Key"] = token;
-      } else {
-        headers["Authorization"] = `Bearer ${token}`;
+      if (token) {
+        if (token.startsWith("rag_") || token.startsWith("api_") || token.startsWith("key_")) {
+          headers["X-API-Key"] = token;
+        } else {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
       }
       return headers;
     }
@@ -2806,11 +2808,11 @@
               <td class="px-5 py-3">
                 <div class="flex items-center space-x-2.5">
                   <i class="fa-regular ${icon} text-base"></i>
-                  <span class="font-medium text-slate-900 truncate max-w-xs md:max-w-md" title="${d.title}">${d.title}</span>
+                  <span class="font-medium text-slate-900 truncate max-w-xs md:max-w-md" title="${escapeHtml(d.title)}">${escapeHtml(d.title)}</span>
                 </div>
               </td>
               <td class="px-4 py-3 text-slate-600 font-mono text-xs">
-                <span class="bg-slate-100 px-2 py-0.5 rounded">${d.department || 'General'}</span> / <span class="bg-slate-100 px-2 py-0.5 rounded font-semibold text-slate-800">${d.course || 'All'}</span>
+                <span class="bg-slate-100 px-2 py-0.5 rounded">${escapeHtml(d.department || 'General')}</span> / <span class="bg-slate-100 px-2 py-0.5 rounded font-semibold text-slate-800">${escapeHtml(d.course || 'All')}</span>
               </td>
               <td class="px-4 py-3">
                 <span class="text-indigo-600 font-bold">${d.chunk_count}</span>
@@ -2819,9 +2821,9 @@
               <td class="px-4 py-3">
                 ${typeBadge}
               </td>
-              <td class="px-4 py-3 text-xs text-slate-400 font-mono">${d.created_at ? d.created_at.slice(0, 10) : '-'}</td>
+              <td class="px-4 py-3 text-xs text-slate-400 font-mono">${d.created_at ? escapeHtml(d.created_at.slice(0, 10)) : '-'}</td>
               <td class="px-4 py-3 text-right">
-                <button onclick="deleteDocument('${d.id}', '${d.title.replace(/'/g, "\\'")}')" class="text-xs bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 px-2.5 py-1 rounded font-medium transition">
+                <button onclick="deleteDocument('${escapeHtml(d.id)}', '${escapeHtml(d.title).replace(/'/g, "\\'")}')" class="text-xs bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 px-2.5 py-1 rounded font-medium transition">
                   <i class="fa-solid fa-trash-can mr-1"></i> Delete
                 </button>
               </td>
@@ -4517,27 +4519,33 @@
             dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
           }
 
-          const safeDetail = inc.detail ? inc.detail.replace(/"/g, '&quot;') : '';
+          const safeDetail = escapeHtml(inc.detail || '');
+          const safeIp = escapeHtml(inc.client_ip || 'N/A');
+          const safeUser = escapeHtml(inc.user_identifier || 'anonymous');
+          const safeEndpoint = escapeHtml(inc.endpoint || 'N/A');
+          const safeAction = escapeHtml(inc.action_taken || 'LOGGED');
+          const safeSev = escapeHtml(inc.severity || 'INFO');
+          const safeType = escapeHtml(inc.event_type || 'UNKNOWN');
 
           return `
             <tr class="hover:bg-slate-50 transition">
-              <td class="px-4 py-3 font-mono text-[11px] text-slate-500 whitespace-nowrap">${dateStr}</td>
+              <td class="px-4 py-3 font-mono text-[11px] text-slate-500 whitespace-nowrap">${escapeHtml(dateStr)}</td>
               <td class="px-3 py-3 whitespace-nowrap">
-                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${sevClass}">${inc.severity}</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${sevClass}">${safeSev}</span>
               </td>
               <td class="px-3 py-3 whitespace-nowrap">
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono ${typeClass}">${inc.event_type}</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono ${typeClass}">${safeType}</span>
               </td>
               <td class="px-4 py-3">
-                <div class="font-mono text-slate-800 font-semibold text-[11px]">${inc.client_ip}</div>
-                <div class="text-[10px] text-slate-400 font-mono">${inc.user_identifier}</div>
+                <div class="font-mono text-slate-800 font-semibold text-[11px]">${safeIp}</div>
+                <div class="text-[10px] text-slate-400 font-mono">${safeUser}</div>
               </td>
               <td class="px-4 py-3 max-w-xs md:max-w-md">
-                <div class="font-mono text-indigo-600 font-semibold text-[11px]">${inc.endpoint}</div>
+                <div class="font-mono text-indigo-600 font-semibold text-[11px]">${safeEndpoint}</div>
                 <div class="text-[11px] text-slate-600 truncate mt-0.5" title="${safeDetail}">${safeDetail}</div>
               </td>
               <td class="px-3 py-3 text-right whitespace-nowrap">
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-200">${inc.action_taken}</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-200">${safeAction}</span>
               </td>
             </tr>
           `;
@@ -5993,7 +6001,7 @@
 
     async function loadAllData() {
       // Pre-fill token input if stored
-      const savedToken = localStorage.getItem("rag_admin_token") || "dev-secret-key-rag-university";
+      const savedToken = localStorage.getItem("rag_admin_token") || "";
       document.getElementById("admin-token").value = savedToken;
 
       await loadHealth();

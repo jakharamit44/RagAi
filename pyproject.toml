@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ragai-platform"
-version = "2.4.0"
-description = "Enterprise Local-First Cognitive RAG and AI Brain Platform for University & Enterprise"
+version = "2.5.0"
+description = "Enterprise Local-First Cognitive RAG, Neural Brain & Indian-Context Safety Governed Platform"
 authors = [
     { name = "University Engineering Team" }
 ]

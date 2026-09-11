@@ -68,40 +68,69 @@ def get_system_drives() -> List[str]:
 
 @router.get("/folders/tree", response_model=DirectoryTreeResponse)
 async def get_directory_tree(
-    path: Optional[str] = Query(None, description="Directory path to inspect or 'DRIVES' for root drives"),
+    path: Optional[str] = Query(None, description="Directory path to inspect"),
     current_admin: User = Depends(require_role("admin"))
 ):
     """
     Interactive Directory & File Selector Endpoint.
-    Allows browsing ANY drive or folder on the host system to pick mixed documents and course materials.
+    Strictly contained within configured ALLOWED_SOURCE_ROOTS to prevent host filesystem traversal.
     """
-    drives = get_system_drives()
+    allowed_prefixes = [r.strip() for r in settings.ALLOWED_SOURCE_ROOTS.split(",") if r.strip()]
+    allowed_roots = [
+        os.path.abspath(os.path.join(settings.PROJECT_ROOT, p))
+        for p in allowed_prefixes
+    ]
+    data_root = os.path.abspath(os.path.join(settings.PROJECT_ROOT, "data"))
+    if data_root not in allowed_roots:
+        allowed_roots.append(data_root)
+
     clean_path = path.strip() if path else ""
 
-    # If requested top-level system drives view
-    if clean_path in ["", "DRIVES", "ROOT", "COMPUTER"] and os.name == 'nt':
+    # Top-level view shows allowed root options
+    if clean_path in ["", "ROOT", "DRIVES", "ALLOWED", "COMPUTER"]:
         dir_items = []
-        for drv in drives:
-            try:
-                count = len([f for f in os.scandir(drv) if not f.name.startswith(("$", "."))])
-            except (PermissionError, OSError):
-                count = 0
-            dir_items.append(DirectoryItem(name=f"Local Disk ({drv.rstrip(os.sep)})", path=drv, items_count=count))
+        for r in allowed_roots:
+            if os.path.exists(r) and os.path.isdir(r):
+                try:
+                    count = len([f for f in os.scandir(r) if not f.name.startswith(("$", "."))])
+                except (PermissionError, OSError):
+                    count = 0
+                rel_label = os.path.relpath(r, settings.PROJECT_ROOT)
+                dir_items.append(DirectoryItem(name=f"📁 {rel_label} ({r})", path=r, items_count=count))
 
         return DirectoryTreeResponse(
-            current_path="Computer (System Drives)",
+            current_path="Allowed Storage Roots",
             parent_path=None,
             directories=dir_items,
             files=[],
-            available_drives=drives,
-            allowed_roots=["*"]
+            available_drives=[os.path.relpath(r, settings.PROJECT_ROOT) for r in allowed_roots],
+            allowed_roots=allowed_prefixes
         )
 
-    # Resolve target directory
-    if not clean_path:
-        resolved_dir = os.path.abspath(".")
-    else:
-        resolved_dir = os.path.abspath(clean_path)
+    resolved_dir = os.path.abspath(clean_path)
+
+    # Enforce containment within allowed_roots
+    is_contained = False
+    for root in allowed_roots:
+        try:
+            if os.path.commonpath([resolved_dir, root]) == root:
+                is_contained = True
+                break
+        except ValueError:
+            continue
+
+    if not is_contained:
+        from api.core.security_logger import record_security_incident_bg
+        record_security_incident_bg(
+            event_type="PATH_TRAVERSAL",
+            severity="HIGH",
+            detail=f"Directory traversal blocked in /folders/tree: {resolved_dir}",
+            action_taken="BLOCKED"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": {"code": "forbidden_path", "message": "Access outside allowed source roots is denied."}}
+        )
 
     if not os.path.exists(resolved_dir):
         raise HTTPException(
@@ -115,31 +144,26 @@ async def get_directory_tree(
             detail={"error": {"code": "not_a_directory", "message": f"Path '{clean_path}' is a file, not a directory."}}
         )
 
-    # Parent path resolution
     parent_dir = os.path.dirname(resolved_dir)
-    if os.name == 'nt':
-        drive, rest = os.path.splitdrive(resolved_dir)
-        if rest in ["\\", "/"]:
-            parent_path = "DRIVES"
-        elif parent_dir == resolved_dir:
-            parent_path = "DRIVES"
-        else:
-            parent_path = parent_dir
-    else:
-        parent_path = parent_dir if parent_dir != resolved_dir else None
+    parent_is_contained = False
+    for r in allowed_roots:
+        try:
+            if os.path.commonpath([parent_dir, r]) == r:
+                parent_is_contained = True
+                break
+        except ValueError:
+            continue
+    parent_path = parent_dir if parent_is_contained else "ROOT"
 
-    dirs: List[DirectoryItem] = []
-    files: List[FileItem] = []
-
-    try:
-        entries = sorted(os.scandir(resolved_dir), key=lambda e: (not e.is_dir(), e.name.lower()))
+    def _scan_directory_sync(target_path: str):
+        dirs: List[DirectoryItem] = []
+        files: List[FileItem] = []
+        entries = sorted(os.scandir(target_path), key=lambda e: (not e.is_dir(), e.name.lower()))
         for entry in entries:
-            # Skip hidden files and Windows system recycle/volume directories
             if entry.name.startswith((".", "$")) or entry.name in [
                 "System Volume Information", "$RECYCLE.BIN", "node_modules", ".venv", "venv", "__pycache__"
             ]:
                 continue
-
             if entry.is_dir():
                 try:
                     count = len([f for f in os.scandir(entry.path) if not f.name.startswith((".", "$"))])
@@ -154,16 +178,20 @@ async def get_directory_tree(
                     except OSError:
                         size = 0
                     files.append(FileItem(name=entry.name, path=entry.path, size_bytes=size, extension=ext))
+        return dirs, files
+
+    try:
+        dirs, files = await asyncio.to_thread(_scan_directory_sync, resolved_dir)
     except PermissionError:
-        raise HTTPException(status_code=403, detail="Permission denied reading system directory.")
+        raise HTTPException(status_code=403, detail="Permission denied reading directory.")
 
     return DirectoryTreeResponse(
         current_path=resolved_dir,
         parent_path=parent_path,
         directories=dirs,
         files=files,
-        available_drives=drives,
-        allowed_roots=["*"]
+        available_drives=[os.path.relpath(r, settings.PROJECT_ROOT) for r in allowed_roots],
+        allowed_roots=allowed_prefixes
     )
 
 
@@ -944,10 +972,9 @@ async def run_single_file_full_ingest(
 
         points_to_upsert = []
         bm25_items = []
-        point_id_counter = int(abs_path.__hash__()) % 10000000
 
-        for i, ((chunk, doc), vec) in enumerate(zip(rows, vectors)):
-            pid = abs(point_id_counter + i) + 1
+        for (chunk, doc), vec in zip(rows, vectors):
+            pid = str(chunk.id)
             payload = {
                 "chunk_id": str(chunk.id),
                 "document_id": str(doc.id),
@@ -1197,10 +1224,9 @@ async def stream_ingest_pipeline(
 
                     points_to_upsert = []
                     bm25_items = []
-                    point_id_counter = int(fpath.__hash__()) % 10000000
 
-                    for i, (chunk, vec) in enumerate(zip(chunk_models, vectors)):
-                        pid = abs(point_id_counter + i) + 1
+                    for chunk, vec in zip(chunk_models, vectors):
+                        pid = str(chunk.id)
                         payload = {
                             "chunk_id": str(chunk.id),
                             "document_id": str(doc_record.id),

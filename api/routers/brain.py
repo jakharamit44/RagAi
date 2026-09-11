@@ -54,12 +54,28 @@ async def get_brain_telemetry():
         raise HTTPException(status_code=500, detail=f"Failed to fetch Brain telemetry: {str(e)}")
 
 
+from api.core.content_guard import inspect_content_safety
+
 @router.post("/fire-synapse")
 async def fire_synapse(payload: FireSynapseRequest):
     """
     Simulates semantic neural firing for any academic question or concept.
     Returns activated graph nodes, synaptic pulses, and the 4-step Thought Pathway Trace.
+    Guarded by Content Moderation & AI Safety Governor.
     """
+    safety = inspect_content_safety(payload.query, context="brain_probe")
+    if not safety.is_safe:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "code": "content_policy_violation",
+                    "category": safety.category,
+                    "message": safety.user_message
+                }
+            }
+        )
+
     try:
         result = await neural_firer.fire_synapse(query=payload.query)
         return result

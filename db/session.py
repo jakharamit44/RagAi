@@ -13,14 +13,19 @@ if "sqlite" in settings.DATABASE_URL:
     def set_sqlite_pragmas(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
         try:
+            cursor.execute("PRAGMA foreign_keys=ON;")
             cursor.execute("PRAGMA journal_mode=WAL;")
             cursor.execute("PRAGMA synchronous=NORMAL;")
-            cursor.execute("PRAGMA busy_timeout=10000;")
+            cursor.execute("PRAGMA busy_timeout=15000;")
             cursor.execute("PRAGMA cache_size=-64000;")  # 64 MB memory page cache
             cursor.execute("PRAGMA temp_store=MEMORY;")
             cursor.execute("PRAGMA mmap_size=268435456;") # 256 MB memory-mapped I/O
         finally:
             cursor.close()
+
+    @event.listens_for(engine.sync_engine, "begin")
+    def do_begin(conn):
+        conn.exec_driver_sql("BEGIN IMMEDIATE")
 
 async_session_factory = async_sessionmaker(
     bind=engine,

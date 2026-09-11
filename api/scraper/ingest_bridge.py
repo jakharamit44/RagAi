@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import Dict, Any, Optional
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -131,9 +132,9 @@ class ScraperIngestBridge:
             session.add_all(chunk_models)
             await session.flush()
 
-            # Embed chunks using CPU embedder
+            # Embed chunks using CPU embedder (offloaded to worker thread)
             texts = [c.text for c in chunk_models]
-            vectors = embedder.embed_texts(texts)
+            vectors = await asyncio.to_thread(embedder.embed_texts, texts)
 
             points_to_upsert = []
             bm25_items = []
@@ -162,10 +163,10 @@ class ScraperIngestBridge:
 
             await session.commit()
 
-            # Upsert into Qdrant & sync BM25 index
-            qdrant_store.upsert_chunks(points_to_upsert)
+            # Upsert into Qdrant & sync BM25 index (offloaded to thread to avoid blocking loop)
+            await asyncio.to_thread(qdrant_store.upsert_chunks, points_to_upsert)
             bm25_index.corpus.extend(bm25_items)
-            bm25_index.build_index(bm25_index.corpus)
+            await asyncio.to_thread(bm25_index.build_index, bm25_index.corpus)
 
             manifest_entry.status = "ingested"
             manifest_entry.title = clean_title

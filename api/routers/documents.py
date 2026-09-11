@@ -269,7 +269,10 @@ async def get_task_status(task_id: str):
     return response
 
 def validate_folder_path(path: str) -> str:
-    """Validates that path exists and is a directory anywhere on the system."""
+    """
+    Validates that path exists, is a directory, and is strictly contained
+    within configured ALLOWED_SOURCE_ROOTS to prevent host filesystem traversal.
+    """
     abs_path = os.path.abspath(path.strip())
     if not os.path.exists(abs_path):
         raise HTTPException(
@@ -291,6 +294,44 @@ def validate_folder_path(path: str) -> str:
                 }
             }
         )
+
+    # Enforce canonical root containment
+    allowed_prefixes = [r.strip() for r in settings.ALLOWED_SOURCE_ROOTS.split(",") if r.strip()]
+    allowed_roots = [
+        os.path.abspath(os.path.join(settings.PROJECT_ROOT, p))
+        for p in allowed_prefixes
+    ]
+    # Include data directory explicitly as valid root
+    allowed_roots.append(os.path.abspath(os.path.join(settings.PROJECT_ROOT, "data")))
+
+    is_contained = False
+    for root in allowed_roots:
+        try:
+            if os.path.commonpath([abs_path, root]) == root:
+                is_contained = True
+                break
+        except ValueError:
+            # Handles Windows drive mismatch
+            continue
+
+    if not is_contained:
+        from api.core.security_logger import record_security_incident_bg
+        record_security_incident_bg(
+            event_type="PATH_TRAVERSAL",
+            severity="CRITICAL",
+            detail=f"Attempted to register folder outside allowed roots: {abs_path}",
+            action_taken="BLOCKED"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "forbidden_path",
+                    "message": f"Folder path '{path}' is outside permitted ingestion roots ({settings.ALLOWED_SOURCE_ROOTS})."
+                }
+            }
+        )
+
     return abs_path
 
 @router.post("/sources/folder", response_model=FolderRegisterResponse, status_code=status.HTTP_201_CREATED)
@@ -381,6 +422,8 @@ async def trigger_folder_scan(
         "details": results
     }
 
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".csv", ".xlsx", ".md", ".html", ".htm"}
+
 @router.post("/documents", response_model=DocumentUploadResponse, status_code=status.HTTP_202_ACCEPTED)
 @router.post("/api/v1/documents/upload", response_model=DocumentUploadResponse, status_code=status.HTTP_202_ACCEPTED)
 async def upload_document(
@@ -398,11 +441,39 @@ async def upload_document(
     os.makedirs(upload_dir, exist_ok=True)
 
     safe_filename = os.path.basename(file.filename) if file.filename else f"upload_{uuid.uuid4().hex[:8]}.txt"
+    ext = os.path.splitext(safe_filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "invalid_file_type",
+                    "message": f"File extension '{ext}' is not permitted. Permitted formats: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+                }
+            }
+        )
+
     dest_path = os.path.join(upload_dir, safe_filename)
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
     def _write_file():
+        total_bytes = 0
         with open(dest_path, "wb") as f:
             while chunk := file.file.read(65536):
+                total_bytes += len(chunk)
+                if total_bytes > max_bytes:
+                    f.close()
+                    if os.path.exists(dest_path):
+                        os.remove(dest_path)
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail={
+                            "error": {
+                                "code": "file_too_large",
+                                "message": f"File size exceeds maximum permitted limit of {settings.MAX_UPLOAD_SIZE_MB}MB."
+                            }
+                        }
+                    )
                 f.write(chunk)
 
     await asyncio.to_thread(_write_file)

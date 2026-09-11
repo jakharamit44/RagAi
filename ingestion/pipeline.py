@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 from typing import Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,8 +68,8 @@ class IngestionPipeline:
             final_course = course or tags.get("course") or folder_basename
             final_sem = semester or tags.get("semester") or "All"
 
-            # 3. Document text extraction
-            pages_data, doc_type, ocr_confidence = DocumentExtractorRouter.extract(abs_path)
+            # 3. Document text extraction (offloaded to thread for OCR/PDF compute)
+            pages_data, doc_type, ocr_confidence = await asyncio.to_thread(DocumentExtractorRouter.extract, abs_path)
 
             # 4. Save Document record (Table 14)
             doc_record = Document(

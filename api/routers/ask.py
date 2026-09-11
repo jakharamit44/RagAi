@@ -25,6 +25,7 @@ from api.rag.retriever import retriever
 from db.session import async_session_factory
 from db.models import QueryAuditLog, User
 from api.core.security_logger import record_security_incident_bg, detect_prompt_injection
+from api.core.content_guard import inspect_content_safety
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,15 @@ class AskResponse(BaseModel):
     served_by: str  # local | hosted | fallback | cache
     confidence: Optional[float] = 1.0
     crag_decision: Optional[str] = "CORRECT"
+
+_BACKGROUND_TASKS: set = set()
+
+def _spawn_bg_task(coro):
+    """Spawns an asyncio background task with a strong reference to prevent GC."""
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
 
 async def record_audit(
     question: str,
@@ -124,7 +134,30 @@ async def ask_question(
         )
         raise
 
-    # 1.5. Adversarial prompt injection & jailbreak detection
+    # 1.5. Indian Context Content Moderation & AI Safety Governor
+    safety_result = inspect_content_safety(req.question, context="query")
+    if not safety_result.is_safe:
+        record_security_incident_bg(
+            event_type=safety_result.category,
+            severity=safety_result.severity,
+            client_ip=request.client.host if request.client else "127.0.0.1",
+            user_identifier=client_id,
+            endpoint=request.url.path,
+            detail=f"Safety violation [{safety_result.category}] snippet '{safety_result.matched_snippet}': {req.question[:150]}",
+            action_taken="BLOCKED"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "content_policy_violation",
+                    "category": safety_result.category,
+                    "message": safety_result.user_message
+                }
+            }
+        )
+
+    # 1.6. Adversarial prompt injection & jailbreak detection
     injection_match = detect_prompt_injection(req.question)
     if injection_match:
         record_security_incident_bg(
@@ -166,7 +199,7 @@ async def ask_question(
         RAG_QUERY_TOTAL.labels(status="success", served_by="cache", department=dept_label).inc()
         RAG_QUERY_DURATION.labels(served_by="cache").observe(duration_s)
 
-        asyncio.create_task(record_audit(req.question, served_by="cache", latency_ms=latency_ms, tokens=0))
+        _spawn_bg_task(record_audit(req.question, served_by="cache", latency_ms=latency_ms, tokens=0))
         logger.info(f"Cache Tier-1 HIT for query: '{req.question[:40]}...' (Latency: {latency_ms:.2f}ms)")
 
         # Stream cached response if client requested stream
@@ -346,10 +379,9 @@ async def ask_question(
                 await cache.set_semantic(cache_key, query_vec, scope_key, cache_payload, ttl=settings.CACHE_TTL_VOLATILE_SECONDS)
                 RAG_QUERY_TOTAL.labels(status="success", served_by="local", department=dept_label).inc()
                 RAG_QUERY_DURATION.labels(served_by="local").observe((time.time() - start_time))
-                asyncio.create_task(record_audit(req.question, served_by="local", latency_ms=elapsed_ms, tokens=len(accumulated_tokens)))
+                _spawn_bg_task(record_audit(req.question, served_by="local", latency_ms=elapsed_ms, tokens=len(accumulated_tokens)))
             finally:
-                import gc
-                gc.collect()
+                pass
 
         return StreamingResponse(stream_rag(), media_type="text/event-stream")
 
@@ -368,7 +400,7 @@ async def ask_question(
             latency_ms = duration_s * 1000
             RAG_QUERY_TOTAL.labels(status="abstained", served_by=served_by, department=dept_label).inc()
             RAG_QUERY_DURATION.labels(served_by=served_by).observe(duration_s)
-            asyncio.create_task(record_audit(req.question, served_by=served_by, latency_ms=latency_ms, tokens=0))
+            _spawn_bg_task(record_audit(req.question, served_by=served_by, latency_ms=latency_ms, tokens=0))
             return AskResponse(
                 answer=abstention_text,
                 citations=[],
@@ -389,7 +421,7 @@ async def ask_question(
         RAG_QUERY_TOTAL.labels(status="success", served_by=served_by, department=dept_label).inc()
         RAG_QUERY_DURATION.labels(served_by=served_by).observe(duration_s)
 
-        asyncio.create_task(record_audit(
+        _spawn_bg_task(record_audit(
             req.question,
             served_by=served_by,
             latency_ms=latency_ms,
@@ -407,8 +439,7 @@ async def ask_question(
             crag_decision=crag_result.decision if crag_result else "CORRECT"
         )
     finally:
-        import gc
-        gc.collect()
+        pass
 
 
 class FeedbackRequest(BaseModel):
@@ -419,10 +450,35 @@ class FeedbackRequest(BaseModel):
 
 @router.post("/feedback")
 @router.post("/api/v1/feedback")
-async def submit_user_feedback(req: FeedbackRequest):
+async def submit_user_feedback(req: FeedbackRequest, request: Request):
     """
     Submits student/employee feedback on RAG answers to feed Corrective RAG (CRAG) self-improvement.
+    Guarded against feedback poisoning and abusive comments.
     """
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    if req.reason:
+        safety = inspect_content_safety(req.reason, context="feedback")
+        if not safety.is_safe:
+            record_security_incident_bg(
+                event_type="FEEDBACK_POISONING",
+                severity="HIGH",
+                client_ip=client_ip,
+                user_identifier=req.query_id,
+                endpoint="/api/v1/feedback",
+                detail=f"Feedback poisoning/abuse attempt: {req.reason[:150]}",
+                action_taken="REJECTED"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": {
+                        "code": "content_policy_violation",
+                        "category": safety.category,
+                        "message": "Feedback contains prohibited or abusive content and was rejected."
+                    }
+                }
+            )
+
     logger.info(f"User feedback received: query_id={req.query_id}, feedback={req.feedback}, reason={req.reason}")
     return {
         "status": "success",

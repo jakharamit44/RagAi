@@ -16,10 +16,20 @@
     return scripts[scripts.length - 1];
   })();
 
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   const CONFIG = {
     apiBase: currentScript.getAttribute('data-api-base') || 'http://localhost:8000',
-    apiKey: currentScript.getAttribute('data-api-key') || 'ragai_student_default',
-    role: currentScript.getAttribute('data-role') || 'general',
+    apiKey: currentScript.getAttribute('data-api-key') || '',
+    role: currentScript.getAttribute('data-role') || 'student',
     department: currentScript.getAttribute('data-department') || '',
     title: currentScript.getAttribute('data-title') || 'RagAi Institutional Copilot'
   };
@@ -192,8 +202,8 @@
     <div class="ragai-chat-window" id="ragai-window">
       <div class="ragai-header">
         <div class="ragai-header-title">
-          <span>${CONFIG.title}</span>
-          <span class="ragai-role-badge">${CONFIG.role}</span>
+          <span>${escapeHtml(CONFIG.title)}</span>
+          <span class="ragai-role-badge">${escapeHtml(CONFIG.role)}</span>
         </div>
         <button class="ragai-close-btn" id="ragai-close-btn">&times;</button>
       </div>
@@ -261,14 +271,25 @@
       });
 
       if (!response.ok) {
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+        let errJson = null;
+        try { errJson = await response.json(); } catch(e) {}
+        const msg = errJson?.error?.message || errJson?.detail || `API Error: ${response.status} ${response.statusText}`;
+        if (errJson?.error?.code === 'content_policy_violation') {
+          aiDiv.innerHTML = `<strong>🛡️ Institutional AI Safety Notice:</strong><br><br>${escapeHtml(msg).replace(/\n/g, '<br>')}`;
+          aiDiv.style.borderColor = '#f59e0b';
+          aiDiv.style.backgroundColor = '#fffbeb';
+          aiDiv.style.color = '#92400e';
+          msgList.scrollTop = msgList.scrollHeight;
+          return;
+        }
+        throw new Error(msg);
       }
 
       const data = await response.json();
       sessionId = data.session_id || sessionId;
 
-      // Render Answer
-      aiDiv.innerHTML = data.answer.replace(/\n/g, '<br>');
+      // Render Answer with HTML escaping to prevent XSS
+      aiDiv.innerHTML = escapeHtml(data.answer).replace(/\n/g, '<br>');
 
       // Render Citations if present
       if (data.citations && data.citations.length > 0) {

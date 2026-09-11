@@ -1,17 +1,16 @@
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Response, status, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select, func, text
 from api.core.config import settings
 from api.rag.qdrant_store import qdrant_store
 from db.session import async_session_factory
-from db.models import Document
+from db.models import Document, Chunk, ManifestEntry, User
+from api.core.auth import require_role, get_optional_current_user
+from typing import Dict, Any, List, Optional
+from api.core.cuda_init import get_gpu_status
 
 router = APIRouter(tags=["Health & Monitoring"])
-
-from typing import Dict, Any, List, Optional
-from db.models import Document, Chunk, ManifestEntry
-from api.core.cuda_init import get_gpu_status
 
 class HardwareTelemetry(BaseModel):
     gpu_available: bool = False
@@ -184,7 +183,7 @@ async def readiness_probe():
 
 @router.get("/health", response_model=HealthResponse)
 @router.get("/api/v1/health", response_model=HealthResponse)
-async def health_check():
+async def health_check(current_user: Optional[User] = Depends(get_optional_current_user)):
     """Liveness & readiness health probe verifying DB, Vector Store, LLM, and GPU."""
     db_ok = True
     doc_count = 0
@@ -214,20 +213,24 @@ async def health_check():
     vram_usd = raw_hw.get("memory_used_mb") or 0
     vram_pct = round((vram_usd / vram_tot * 100), 1) if vram_tot > 0 else 0.0
 
+    is_admin = bool(current_user and current_user.role == "admin")
+    
     hw_telemetry = HardwareTelemetry(
         gpu_available=raw_hw.get("gpu_available", False),
-        gpu_name=raw_hw.get("gpu_name", "CPU Mode"),
-        memory_total_mb=vram_tot,
-        memory_used_mb=vram_usd,
-        memory_free_mb=raw_hw.get("memory_free_mb", 0),
+        gpu_name=raw_hw.get("gpu_name", "CPU Mode") if is_admin else ("GPU Enabled" if raw_hw.get("gpu_available") else "CPU Mode"),
+        memory_total_mb=vram_tot if is_admin else 0,
+        memory_used_mb=vram_usd if is_admin else 0,
+        memory_free_mb=raw_hw.get("memory_free_mb", 0) if is_admin else 0,
         vram_usage_pct=vram_pct,
-        gpu_utilization_pct=raw_hw.get("gpu_utilization_pct", 0),
-        driver_version=raw_hw.get("driver_version", "N/A"),
-        cuda_version=raw_hw.get("cuda_version", "N/A"),
-        onnx_providers=raw_hw.get("onnx_providers", []),
+        gpu_utilization_pct=raw_hw.get("gpu_utilization_pct", 0) if is_admin else 0,
+        driver_version=raw_hw.get("driver_version", "N/A") if is_admin else "N/A",
+        cuda_version=raw_hw.get("cuda_version", "N/A") if is_admin else "N/A",
+        onnx_providers=raw_hw.get("onnx_providers", []) if is_admin else [],
         active_acceleration=raw_hw.get("active_acceleration", "CPU Fallback"),
         is_cuda_active=raw_hw.get("is_cuda_active", False)
     )
+
+    storage_info = get_storage_telemetry() if is_admin else None
 
     return HealthResponse(
         status=overall_status,
@@ -237,11 +240,11 @@ async def health_check():
         documents_indexed=doc_count,
         chunks_indexed=chunk_count,
         hardware=hw_telemetry,
-        storage=get_storage_telemetry()
+        storage=storage_info
     )
 
 @router.get("/api/v1/admin/rag/status", response_model=FullRagStatusResponse)
-async def get_full_rag_status():
+async def get_full_rag_status(current_user: User = Depends(require_role("admin"))):
     """
     Comprehensive live status of the RAG system for Admin Control Center:
     - Files done, left in queue, failed, duplicate bypassed

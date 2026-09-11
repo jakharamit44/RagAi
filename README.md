@@ -82,7 +82,11 @@ The platform is anchored on five inviolable architectural principles:
 
 ## 2. Key Features
 
-- **Multi-Format Ingestion**: Ingests `.docx`, `.pdf`, and `.txt` files with layout-aware chunking (preserving chapter headings, paragraphs, and reading flow).
+- **Multi-Format Ingestion**: Ingests `.docx`, `.pdf`, `.txt`, `.csv`, `.xlsx`, and `.md` files with layout-aware chunking (preserving chapter headings, paragraphs, and reading flow).
+- **Cognitive AI Brain & Live Knowledge Cortex**: High-performance semantic graph engine modeling University Core, Departments, Courses, Concepts, and Documents with tri-partite cognitive memory (Semantic, Episodic, Working) and live HTML5 canvas neural visualizer.
+- **Indian-Context AI Safety Governor & Content Moderation**: Enterprise-grade guardrail engine filtering Hindi, Hinglish, and English profanity, casteist/communal slurs (SC/ST PoA Act), adversarial "AI teaching"/model poisoning, exam malpractice (chits, paper leaks, forgery), and UGC Anti-Ragging violations with contextual whitelisting for legitimate academic inquiries.
+- **Autonomous University Web Scraper & Crawler**: 3-tier delta change detection crawler for university portals (ETag/304, noise-filtered SHA-256, cryptographic ledger) with automated PDF streaming and temporary storage reclamation.
+- **Universal Portal Integration & Embeddable Widget**: Lightweight, zero-dependency embeddable chat widget (`ragai_chat_widget.js`), typed Python SDK, and React hooks for student portals, employee intranets, and faculty dashboards.
 - **Multi-Modal Academic Support**: Automatically converts tabular data into structured Markdown grids (`| Col 1 | Col 2 |`) and preserves inline and block LaTeX mathematics (`$BF = h_L - h_R$`).
 - **Continuous Folder Watcher**: Automated SHA-256 manifest tracking with change detection; skips unchanged files, updates edited documents, and prunes deleted sources.
 - **Asynchronous Task Queue**: Celery task queue with background worker execution and eager fallback when a broker is unavailable.
@@ -99,35 +103,59 @@ The platform is anchored on five inviolable architectural principles:
 ```
 d:\RagAi\
 ├── api/                           # Core FastAPI Web Service
+│   ├── brain/                     # Cognitive AI Brain & Knowledge Cortex Subsystem
+│   │   ├── graph_engine.py        # Semantic graph builder (University Core -> Dept -> Course -> Concept)
+│   │   ├── cognitive_memory.py    # Tri-partite memory model (Semantic, Episodic, Working)
+│   │   └── neural_firer.py        # Real-time synaptic activation & 4-step Thought Pathway tracer
 │   ├── core/                      # Core configuration and middleware
-│   │   ├── auth.py                # JWT creation, decoding, and RBAC role dependencies
+│   │   ├── auth.py                # JWT creation, decoding, and hardened RBAC role dependencies
 │   │   ├── cache.py               # Redis semantic cache with in-memory TTL fallback
 │   │   ├── config.py              # Central Pydantic settings & environment definitions
+│   │   ├── content_guard.py       # Indian-Context AI Safety Governor & Content Moderation Engine
+│   │   ├── exceptions.py          # RFC 7807 problem details error handlers
 │   │   ├── llm_router.py          # Local-first LLM router with prompt boundary fencing
 │   │   ├── metrics.py             # Prometheus metric collectors & histograms
-│   │   └── rate_limiter.py        # Sliding-window IP rate limiter
+│   │   ├── rate_limiter.py        # Sliding-window IP rate limiter
+│   │   └── security_logger.py     # Background security incident ledger
 │   ├── rag/                       # Retrieval-Augmented Generation subsystem
 │   │   ├── bm25_index.py          # Sparse BM25Okapi index with auto-load from database
+│   │   ├── chat_generator.py      # Quantized local generator with StreamCancellationCriteria
 │   │   ├── embedder.py            # SentenceTransformer 384-dim dense vectorizer
 │   │   ├── qdrant_store.py        # Qdrant client managing 'university_corpus' collection
 │   │   ├── reranker.py            # Cross-encoder and lexical density reranker
-│   │   └── retriever.py           # Hybrid RRF retriever combining dense + sparse results
+│   │   ├── retriever.py           # Hybrid RRF retriever combining dense + sparse results
+│   │   └── self_improver.py       # Autonomous Karpathy prompt optimization engine
 │   ├── routers/                   # API Route controllers
-│   │   ├── ask.py                 # POST /api/v1/ask grounded QA endpoint
+│   │   ├── admin_governance.py    # Enterprise governance, folder scan, and diagnostic endpoints
+│   │   ├── ask.py                 # POST /api/v1/ask grounded QA & feedback endpoint
 │   │   ├── auth.py                # POST /auth/login, POST /auth/token, GET /auth/me
+│   │   ├── brain.py               # GET /admin/brain/graph, POST /admin/brain/fire-synapse
 │   │   ├── chat.py                # POST /v1/chat/completions OpenAI-compatible endpoint
 │   │   ├── documents.py           # Ingestion, folder registration, and manifest listings
 │   │   ├── health.py              # GET /health subsystem status probe
-│   │   └── metrics.py             # GET /metrics Prometheus scrape endpoint
+│   │   ├── metrics.py             # GET /metrics Prometheus scrape endpoint
+│   │   └── scraper.py             # Autonomous crawler control, jobs, and delta manifests
+│   ├── scraper/                   # Autonomous University Website Scraper & Crawler
+│   │   ├── crawler.py             # Polite BFS crawler with semaphore & delay controls
+│   │   ├── page_extractor.py      # Trafilatura / BeautifulSoup content extraction
+│   │   ├── doc_downloader.py      # Streamed PDF downloader with 50MB cap
+│   │   ├── delta_detector.py      # 3-tier change detector (ETag, SHA-256, Manifest)
+│   │   ├── ingest_bridge.py       # Seamless delta change indexer to Qdrant & SQLite
+│   │   ├── storage_cleaner.py     # Safe temporary crawler download reclamation
+│   │   └── url_normalizer.py      # SSRF defense, DNS pre-resolution, and domain whitelist
 │   ├── static/                    # Frontend HTML, CSS, and JS assets
-│   │   ├── admin.html             # Admin Dashboard UI
-│   │   └── chat.html              # Student Chat Widget UI (with KaTeX & table support)
+│   │   ├── admin.html             # Admin Dashboard UI with Live Brain Cortex Visualizer
+│   │   ├── chat.html              # Student Chat Widget UI (with KaTeX & table support)
+│   │   └── ragai_chat_widget.js   # Universal embeddable JavaScript chat widget
 │   └── main.py                    # Application entrypoint and startup lifecycle
 ├── data/                          # Academic Corpus & Upload Storage
 │   ├── artifacts/                 # Extracted diagrams and images
+│   ├── downloads/                 # Scraped documents and circulars
 │   ├── fine_tuning/               # Generated train.jsonl and val.jsonl datasets
 │   ├── sample_courses/            # Sample university course directories (CS401, CS402)
 │   └── uploads/                   # Temporary directory for multipart file uploads
+├── skills/                        # Reusable AI Agent Integration Skills
+│   └── ragai-api-integration/     # Universal drop-in skill for student & employee portals
 ├── db/                            # Relational Database Engine
 │   ├── models.py                  # SQLAlchemy ORM models (SQLite & PostgreSQL dual-mode)
 │   └── session.py                 # Async database engine and session factory

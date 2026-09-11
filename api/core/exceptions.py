@@ -28,9 +28,9 @@ def _map_status_to_code(status_code: int) -> str:
         status.HTTP_404_NOT_FOUND: "not_found",
         status.HTTP_405_METHOD_NOT_ALLOWED: "method_not_allowed",
         status.HTTP_409_CONFLICT: "conflict",
-        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE: "payload_too_large",
+        getattr(status, "HTTP_413_CONTENT_TOO_LARGE", 413): "payload_too_large",
         status.HTTP_415_UNSUPPORTED_MEDIA_TYPE: "unsupported_media_type",
-        status.HTTP_422_UNPROCESSABLE_ENTITY: "validation_error",
+        getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422): "validation_error",
         status.HTTP_429_TOO_MANY_REQUESTS: "rate_limit_exceeded",
         status.HTTP_500_INTERNAL_SERVER_ERROR: "internal_error",
         status.HTTP_502_BAD_GATEWAY: "bad_gateway",
@@ -41,17 +41,40 @@ def _map_status_to_code(status_code: int) -> str:
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     request_id = _get_request_id(request)
-    msg = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
     code = _map_status_to_code(exc.status_code)
-    
+    category = None
+    if isinstance(exc.detail, dict):
+        if "error" in exc.detail and isinstance(exc.detail["error"], dict):
+            err_obj = exc.detail["error"]
+            code = err_obj.get("code", code)
+            msg = err_obj.get("message", str(err_obj))
+            details = err_obj.get("details")
+            category = err_obj.get("category")
+        else:
+            code = exc.detail.get("code", code)
+            msg = exc.detail.get("message", str(exc.detail))
+            details = exc.detail.get("details")
+            category = exc.detail.get("category")
+    else:
+        msg = str(exc.detail)
+
     payload = {
+        "type": f"https://ragai.mdu.ac.in/errors/{code.replace('_', '-')}",
+        "title": code.replace("_", " ").title(),
+        "status": exc.status_code,
+        "detail": msg,
+        "instance": f"urn:ragai:request:{request_id or 'unknown'}",
         "error": {
             "code": code,
             "message": msg,
             "status_code": exc.status_code,
             "request_id": request_id,
+            "details": details,
         }
     }
+    if category:
+        payload["error"]["category"] = category
+        payload["category"] = category
     headers = getattr(exc, "headers", None) or {}
     if request_id and "X-Request-ID" not in headers:
         headers["X-Request-ID"] = request_id
@@ -60,6 +83,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         status_code=exc.status_code,
         content=payload,
         headers=headers,
+        media_type="application/problem+json",
     )
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -78,7 +102,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         "error": {
             "code": "validation_error",
             "message": "The request body or parameters failed validation.",
-            "status_code": status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "status_code": getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422),
             "request_id": request_id,
             "details": clean_errors,
         }
@@ -86,7 +110,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     headers = {"X-Request-ID": request_id} if request_id else None
 
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422),
         content=payload,
         headers=headers,
     )

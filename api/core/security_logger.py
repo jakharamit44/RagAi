@@ -74,6 +74,8 @@ async def log_security_event(
         logger.error(f"Failed to record security incident: {e}", exc_info=False)
         return None
 
+_SEC_TASKS: set = set()
+
 def record_security_incident_bg(
     event_type: str,
     severity: str = "MEDIUM",
@@ -84,11 +86,11 @@ def record_security_incident_bg(
     action_taken: str = "BLOCKED"
 ):
     """
-    Fire-and-forget background task wrapper for security logging.
+    Background task wrapper for security logging with strong reference tracking to prevent GC.
     """
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(log_security_event(
+        task = loop.create_task(log_security_event(
             event_type=event_type,
             severity=severity,
             client_ip=client_ip,
@@ -97,5 +99,7 @@ def record_security_incident_bg(
             detail=detail,
             action_taken=action_taken
         ))
+        _SEC_TASKS.add(task)
+        task.add_done_callback(_SEC_TASKS.discard)
     except RuntimeError:
         pass

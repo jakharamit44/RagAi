@@ -50,33 +50,35 @@ def decode_token(token: str) -> Dict[str, Any]:
         )
 
 async def verify_api_key(raw_key: str) -> Optional[User]:
-    """Validate dynamic multi-tenant API key from database or fallback static key."""
+    """Validate dynamic multi-tenant API key from database or authorized service key."""
     if not raw_key:
         return None
 
-    # 1. Check static developer and persona default keys
-    if raw_key in (settings.API_KEY, "ragai_master_admin_key", "ragai_admin_master", "ragai_master"):
+    # 1. Optional explicit dev fallback keys strictly in development mode if enabled
+    if settings.ENVIRONMENT == "development" and getattr(settings, "ALLOW_INSECURE_DEV_AUTH", False):
+        if raw_key == settings.API_KEY or (settings.ADMIN_API_KEY and raw_key == settings.ADMIN_API_KEY):
+            return User(
+                external_id="static_dev_admin",
+                role="admin",
+                department=None
+            )
+        if settings.STUDENT_API_KEY and raw_key == settings.STUDENT_API_KEY:
+            return User(
+                external_id="student_portal_user",
+                role="student",
+                department=None
+            )
+        if settings.FACULTY_API_KEY and raw_key == settings.FACULTY_API_KEY:
+            return User(
+                external_id="faculty_portal_user",
+                role="faculty",
+                department=None
+            )
+    elif raw_key == settings.API_KEY and settings.API_KEY not in ("", "dev-insecure-api-key"):
+        # Authorized service-to-service key
         return User(
-            external_id="static_dev_admin",
+            external_id="service_account_admin",
             role="admin",
-            department=None
-        )
-    if raw_key in ("ragai_student_default", "ragai_student", "ragai_student_key"):
-        return User(
-            external_id="student_portal_user",
-            role="student",
-            department=None
-        )
-    if raw_key in ("ragai_employee_default", "ragai_employee_key", "ragai_employee"):
-        return User(
-            external_id="employee_portal_user",
-            role="employee",
-            department=None
-        )
-    if raw_key in ("ragai_faculty_default", "ragai_faculty_key", "ragai_faculty"):
-        return User(
-            external_id="faculty_portal_user",
-            role="faculty",
             department=None
         )
 
@@ -102,7 +104,8 @@ async def verify_api_key(raw_key: str) -> Optional[User]:
                 detail={"error": {"code": "api_key_disabled", "message": "API Key is currently disabled. Contact administrator."}}
             )
 
-        if api_key_rec.expires_at and api_key_rec.expires_at < datetime.utcnow():
+        now = datetime.utcnow()
+        if api_key_rec.expires_at and api_key_rec.expires_at < now:
             record_security_incident_bg(
                 event_type="AUTH_FAILURE",
                 severity="LOW",
@@ -115,9 +118,10 @@ async def verify_api_key(raw_key: str) -> Optional[User]:
                 detail={"error": {"code": "api_key_expired", "message": "API Key has expired."}}
             )
 
-        # Update last_used_at
-        api_key_rec.last_used_at = datetime.utcnow()
-        await session.commit()
+        # Debounce last_used_at to prevent SQLite write lock serialization on every request
+        if not api_key_rec.last_used_at or (now - api_key_rec.last_used_at).total_seconds() > 3600:
+            api_key_rec.last_used_at = now
+            await session.commit()
 
         return User(
             id=api_key_rec.id,

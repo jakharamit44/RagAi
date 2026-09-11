@@ -75,26 +75,32 @@ fi
 # 4. Install Base Requirements
 echo ""
 echo "--> Step 4: Installing Core Application Dependencies..."
-$VENV_PIP install \
-    "fastapi>=0.110.0" \
-    "uvicorn[standard]>=0.28.0" \
-    "pydantic>=2.6.0" \
-    "pydantic-settings>=2.2.0" \
-    "sqlalchemy>=2.0.28" \
-    "aiosqlite>=0.20.0" \
-    "rank-bm25>=0.2.2" \
-    "httpx>=0.27.0" \
-    "python-docx>=1.1.0" \
-    "pyjwt>=2.8.0" \
-    "cryptography>=42.0.0" \
-    "prometheus-client>=0.20.0" \
-    "celery>=5.3.6" \
-    "redis>=5.0.3" \
-    "qdrant-client>=1.8.0" \
-    "python-multipart>=0.0.9" \
-    "accelerate>=0.28.0" \
-    "transformers>=4.40.0" \
-    --quiet
+if [ -f "requirements.txt" ]; then
+    $VENV_PIP install -r requirements.txt --quiet
+else
+    $VENV_PIP install \
+        "fastapi>=0.115.0" \
+        "uvicorn[standard]>=0.30.0" \
+        "pydantic>=2.9.0" \
+        "pydantic-settings>=2.5.0" \
+        "sqlalchemy>=2.0.35" \
+        "aiosqlite>=0.20.0" \
+        "rank-bm25>=0.2.2" \
+        "httpx>=0.27.2" \
+        "python-docx>=1.1.2" \
+        "pyjwt>=2.9.0" \
+        "cryptography>=43.0.0" \
+        "prometheus-client>=0.21.0" \
+        "celery>=5.4.0" \
+        "redis>=5.1.0" \
+        "qdrant-client>=1.11.0" \
+        "python-multipart>=0.0.12" \
+        "accelerate>=0.34.0" \
+        "transformers>=4.44.0" \
+        "beautifulsoup4>=4.12.0" \
+        "trafilatura>=1.12.0" \
+        --quiet
+fi
 
 echo "    [OK] Core dependencies installed successfully."
 
@@ -106,6 +112,8 @@ mkdir -p data/sample_courses/CS402
 mkdir -p data/uploads
 mkdir -p data/artifacts/figures
 mkdir -p data/fine_tuning
+mkdir -p data/downloads/mdu_scraped
+mkdir -p data/qdrant_storage
 mkdir -p backups
 mkdir -p reports
 mkdir -p models

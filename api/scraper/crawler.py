@@ -162,7 +162,7 @@ class UniversityWebCrawler:
             "Accept-Encoding": "gzip, deflate",
         }
 
-        async with httpx.AsyncClient(headers=client_headers, timeout=20.0, verify=False, follow_redirects=True) as client:
+        async with httpx.AsyncClient(headers=client_headers, timeout=20.0, verify=True, follow_redirects=True) as client:
             while queue and not self.stop_requested and self.stats["total_urls_visited"] < max_pages:
                 current_url, depth = queue.popleft()
                 self.current_url = current_url
@@ -199,6 +199,12 @@ class UniversityWebCrawler:
         visited: Set[str],
         auto_ingest: bool
     ):
+        # SSRF guard: strictly re-validate URL safety prior to fetching
+        is_safe, reason = UrlNormalizer.is_safe_url(url, allowed_domains)
+        if not is_safe:
+            self.log_activity(f"Blocked unsafe/unauthorized URL {url}: {reason}", level="warning")
+            return
+
         async with async_session_factory() as session:
             # Check if this is a document (.pdf, .docx) or a web page
             if UrlNormalizer.is_document_url(url):

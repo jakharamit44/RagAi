@@ -52,10 +52,22 @@ class PromptRuleManager:
 
     @staticmethod
     def save_rules(rules: List[str]):
+        from api.core.content_guard import inspect_content_safety
+        # Strict AI Safety Governor: filter out any toxic, adversarial, or prohibited rules
+        sanitized_rules = []
+        for r in rules:
+            if not r or not isinstance(r, str):
+                continue
+            safety = inspect_content_safety(r, context="prompt_rule")
+            if safety.is_safe:
+                sanitized_rules.append(r)
+            else:
+                logger.warning(f"Rejected unsafe prompt rule during save: [{safety.category}] {r[:100]}")
+
         os.makedirs(os.path.dirname(RULES_FILE), exist_ok=True)
         with open(RULES_FILE, "w", encoding="utf-8") as f:
-            json.dump(rules, f, indent=2, ensure_ascii=False)
-        logger.info(f"Saved {len(rules)} prompt rules to {RULES_FILE}")
+            json.dump(sanitized_rules, f, indent=2, ensure_ascii=False)
+        logger.info(f"Saved {len(sanitized_rules)} verified safe prompt rules to {RULES_FILE}")
 
     @staticmethod
     def reset_to_defaults():
@@ -111,20 +123,37 @@ class SelfImprovingRAGEngine:
         original_rules = PromptRuleManager.get_rules()
         logger.info(f"Self-Improvement: Starting optimization cycle with {len(original_rules)} baseline rules.")
 
+        # Step 0: Pre-flight AI Safety Governor check for suggested candidate rules
+        if suggested_rule:
+            candidate_rule = suggested_rule.strip()
+            from api.core.content_guard import inspect_content_safety
+            safety = inspect_content_safety(candidate_rule, context="prompt_rule")
+            if not safety.is_safe:
+                logger.warning(f"Self-Improvement: Suggested rule rejected by AI Safety Governor [{safety.category}]: {candidate_rule}")
+                return {
+                    "status": "REJECTED_UNSAFE",
+                    "reason": f"Rule violates AI safety and content policy ({safety.category}).",
+                    "baseline_score": 0.0,
+                    "new_score": 0.0,
+                    "mutation_applied": None,
+                    "total_active_rules": len(original_rules),
+                    "evaluation_details": []
+                }
+        else:
+            candidate_rule = None
+
         # Step 1: Evaluate baseline
         baseline_score, baseline_details = await self._evaluate_rules(original_rules)
         logger.info(f"Self-Improvement: Baseline score = {baseline_score:.2f}%")
 
-        # Step 2: Mutator generates mutation
-        if not suggested_rule:
+        # Step 2: Mutator generates mutation if not provided
+        if not candidate_rule:
             if strategy == "add_constraint":
                 candidate_rule = "For examination schedule queries, explicitly state that students must bring their official admit card and verify examination center timings."
             elif strategy == "add_example":
                 candidate_rule = "When providing admission requirements, organize qualifications into clear bulleted points for readability."
             else:
                 candidate_rule = "Always maintain an encouraging, academic tone suited for higher education scholars."
-        else:
-            candidate_rule = suggested_rule.strip()
 
         # Step 3: Apply mutation temporarily
         mutated_rules = list(original_rules)

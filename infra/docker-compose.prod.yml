@@ -22,15 +22,15 @@ services:
     container_name: university_rag_api
     restart: unless-stopped
     environment:
-      - DATABASE_URL=postgresql+asyncpg://rag_user:rag_secret_password@postgres:5432/university_rag
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rag_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-university_rag}
       - VECTOR_STORE_HOST=qdrant
       - VECTOR_STORE_PORT=6333
       - VECTOR_COLLECTION_NAME=university_corpus
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
-      - JWT_SIGNING_KEY=prod-secret-jwt-signing-key-university-rag-32bytes-long
-      - API_KEY=prod-secret-service-key-2026
+      - JWT_SIGNING_KEY=${JWT_SIGNING_KEY}
+      - API_KEY=${API_KEY}
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
     command: ["celery", "-A", "workers.celery_app", "worker", "--loglevel=info", "-c", "10"]
     environment:
-      - DATABASE_URL=postgresql+asyncpg://rag_user:rag_secret_password@postgres:5432/university_rag
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rag_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-university_rag}
       - VECTOR_STORE_HOST=qdrant
       - VECTOR_STORE_PORT=6333
       - VECTOR_COLLECTION_NAME=university_corpus
@@ -73,9 +73,9 @@ services:
     container_name: university_rag_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: rag_user
-      POSTGRES_PASSWORD: rag_secret_password
-      POSTGRES_DB: university_rag
+      POSTGRES_USER: ${POSTGRES_USER:-rag_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-university_rag}
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -126,8 +126,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
     volumes:
       - grafana_data:/var/lib/grafana
     depends_on:

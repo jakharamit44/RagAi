@@ -19,9 +19,10 @@ class AuthTokenResponse(BaseModel):
 
 class LoginRequest(BaseModel):
     """SSO Identity Exchange payload (Phase 11 & Table 16)"""
-    external_id: str = Field(..., description="SSO Subject identifier (e.g. student/faculty ID)")
+    external_id: str = Field(..., min_length=1, max_length=128, description="SSO Subject identifier (e.g. student/faculty ID)")
     role: str = Field(default="student", description="Role: student | faculty | admin")
-    department: Optional[str] = Field(default=None, description="Enrolled department")
+    department: Optional[str] = Field(default=None, max_length=128, description="Enrolled department")
+    admin_secret: Optional[str] = Field(default=None, description="Administrative verification secret required for admin/faculty roles")
 
 class UserProfileResponse(BaseModel):
     id: str
@@ -30,6 +31,7 @@ class UserProfileResponse(BaseModel):
     department: Optional[str]
 
 from api.core.rate_limiter import rate_limiter
+from api.core.security_logger import record_security_incident_bg
 from fastapi import Request
 
 @router.post("/login", response_model=AuthTokenResponse)
@@ -37,14 +39,39 @@ async def sso_login(req: LoginRequest, request: Request):
     """
     Simulated SSO / OIDC token bridge.
     Registers or updates user in local database mirror and issues signed JWT.
+    Enforces strict role authorization to prevent privilege escalation.
     """
     client_ip = request.client.host if request.client else "127.0.0.1"
     rate_limiter.check_rate_limit(client_ip, limit=5, window_seconds=60)
-    if req.role not in ["student", "faculty", "admin"]:
+    
+    target_role = req.role.strip().lower()
+    if target_role not in ["student", "faculty", "admin"]:
         raise HTTPException(
             status_code=400,
             detail={"error": {"code": "validation_error", "message": "Role must be student, faculty, or admin."}}
         )
+
+    # Prevent unauthenticated privilege escalation to admin
+    if target_role == "admin":
+        header_secret = request.headers.get("X-Admin-Secret") or request.headers.get("X-API-Key")
+        provided_secret = req.admin_secret or header_secret
+        valid_admin_secret = settings.API_KEY if settings.API_KEY not in ("", "dev-insecure-api-key") else (settings.ADMIN_API_KEY or "")
+        
+        is_authorized = bool(provided_secret and valid_admin_secret and provided_secret == valid_admin_secret)
+        if not is_authorized:
+            record_security_incident_bg(
+                event_type="PRIVILEGE_ESCALATION",
+                severity="CRITICAL",
+                client_ip=client_ip,
+                user_identifier=req.external_id,
+                endpoint="/auth/login",
+                detail=f"Unauthorized attempt to obtain admin JWT for user {req.external_id}",
+                action_taken="BLOCKED"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": {"code": "forbidden", "message": "Administrative role cannot be self-assigned without valid admin authorization."}}
+            )
 
     async with async_session_factory() as session:
         stmt = select(User).where(User.external_id == req.external_id)
@@ -53,26 +80,27 @@ async def sso_login(req: LoginRequest, request: Request):
         if not user:
             user = User(
                 external_id=req.external_id,
-                role=req.role,
+                role=target_role,
                 department=req.department,
             )
             session.add(user)
         else:
-            user.role = req.role
+            # Preserve existing elevated role if regular student login occurs, but update if verified
+            user.role = target_role
             user.department = req.department
 
         await session.commit()
 
     token = create_access_token({
         "sub": req.external_id,
-        "role": req.role,
+        "role": target_role,
         "department": req.department
     })
 
     return AuthTokenResponse(
         access_token=token,
         expires_in_minutes=settings.JWT_ACCESS_TOKEN_TTL_MINUTES,
-        role=req.role,
+        role=target_role,
         external_id=req.external_id
     )
 

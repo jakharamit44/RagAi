@@ -18,7 +18,13 @@ class Settings(BaseSettings):
     )
 
     # Core & Auth (Phase 6, 11, 19)
+    PROJECT_ROOT: str = Field(default=PROJECT_ROOT, description="Absolute root directory of the RagAi project")
+    ENVIRONMENT: str = Field(default="development", description="Environment mode: development | production")
+    ALLOW_INSECURE_DEV_AUTH: bool = Field(default=False, description="Allow static fallback dev keys strictly if development")
     API_KEY: str = Field(default="dev-insecure-api-key", description="Static key for service-to-service calls")
+    ADMIN_API_KEY: Optional[str] = Field(default=None, description="Optional explicit admin key from env")
+    STUDENT_API_KEY: Optional[str] = Field(default=None, description="Optional explicit student key from env")
+    FACULTY_API_KEY: Optional[str] = Field(default=None, description="Optional explicit faculty key from env")
     JWT_SIGNING_KEY: str = Field(default="dev-insecure-jwt-signing-key-university-rag-secure-secret-token-32bytes", description="Signs/verifies student/staff access tokens")
     JWT_ACCESS_TOKEN_TTL_MINUTES: int = Field(default=15, description="Short-lived access token TTL")
     JWT_REFRESH_TOKEN_TTL_DAYS: int = Field(default=30, description="Refresh token TTL")

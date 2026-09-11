@@ -1,4 +1,5 @@
 import re
+import socket
 import hashlib
 import ipaddress
 from typing import Optional, List, Set, Tuple
@@ -136,15 +137,32 @@ class UrlNormalizer:
             if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
                 return False, "Access to localhost or loopback is blocked"
 
-            # Check IP address targets
+            # Parse literal IP or resolve domain names via DNS to prevent SSRF
             try:
                 ip = ipaddress.ip_address(host)
-                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-                    return False, f"Access to private/internal IP {host} is blocked"
-                if str(ip) == "169.254.169.254":
-                    return False, "Cloud metadata service access is blocked"
+                resolved_ips = [ip]
             except ValueError:
-                pass
+                # Host is a domain: resolve via DNS to inspect underlying IPs
+                try:
+                    addr_info = socket.getaddrinfo(host, None)
+                    resolved_ips = [ipaddress.ip_address(addr[4][0]) for addr in addr_info if addr[4]]
+                except Exception:
+                    return False, f"Could not resolve domain '{host}' via DNS"
+
+            if not resolved_ips:
+                return False, f"Could not resolve any IP address for host '{host}'"
+
+            for ip_obj in resolved_ips:
+                if ip_obj.is_loopback:
+                    return False, f"Access to loopback IP {ip_obj} for host '{host}' is blocked"
+                if str(ip_obj) in ("169.254.169.254", "0.0.0.0") or ip_obj.is_link_local or ip_obj.is_multicast or ip_obj.is_reserved:
+                    return False, "Cloud metadata, link-local, or unroutable service access is blocked"
+                if ip_obj.is_private:
+                    # Allow private IP ONLY if host is in an explicitly configured allowed_domains list (e.g. campus intranet)
+                    if allowed_domains and UrlNormalizer.is_allowed_domain(url, allowed_domains):
+                        pass
+                    else:
+                        return False, f"Access to private/internal IP {ip_obj} for host '{host}' is blocked"
 
             if allowed_domains:
                 if not UrlNormalizer.is_allowed_domain(url, allowed_domains):

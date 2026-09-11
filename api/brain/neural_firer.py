@@ -1,5 +1,6 @@
 import time
 import math
+import asyncio
 import logging
 from typing import Dict, List, Any, Optional
 from .graph_engine import brain_graph_engine
@@ -53,9 +54,9 @@ class NeuralFirer:
                     "message": "Knowledge Cortex is empty. Please index documents first."
                 }
 
-            # 2. Embed Query via MiniLM (CPU-decoupled)
+            # 2. Embed Query via MiniLM (CPU-decoupled, offloaded to worker thread)
             from api.rag.embedder import embedder
-            query_vec = embedder.embed_query(query)
+            query_vec = await asyncio.to_thread(embedder.embed_query, query)
 
             # 3. Batch-embed any uncached nodes in a single efficient vectorized call
             uncached_nodes = []
@@ -68,7 +69,7 @@ class NeuralFirer:
                     uncached_signatures.append(sig or "academic concept")
 
             if uncached_signatures:
-                batch_vectors = embedder.embed_texts(uncached_signatures)
+                batch_vectors = await asyncio.to_thread(embedder.embed_texts, uncached_signatures)
                 for n_id, vec in zip(uncached_nodes, batch_vectors):
                     self._node_embeddings_cache[n_id] = [float(v) for v in vec]
 

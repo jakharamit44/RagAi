@@ -90,7 +90,6 @@ class LocalChatGenerator:
                                     target_dir,
                                     quantization_config=bnb_config,
                                     device_map="cuda",
-                                    torch_dtype=torch.float16,
                                     attn_implementation="sdpa",
                                     local_files_only=True,
                                 )
@@ -224,12 +223,12 @@ class LocalChatGenerator:
                     torch.cuda.empty_cache()
             raise gen_err
         finally:
-            del inputs
-            del outputs
-            del generated_ids
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            gc.collect()
+            if 'inputs' in locals():
+                del inputs
+            if 'outputs' in locals():
+                del outputs
+            if 'generated_ids' in locals():
+                del generated_ids
 
     async def generate_rag_answer(
         self,
@@ -343,6 +342,15 @@ class LocalChatGenerator:
             timeout=30.0,
         )
 
+        import threading
+        from transformers import StoppingCriteria, StoppingCriteriaList
+
+        stop_event = threading.Event()
+
+        class StreamCancellationCriteria(StoppingCriteria):
+            def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
+                return stop_event.is_set()
+
         async_queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
@@ -362,6 +370,7 @@ class LocalChatGenerator:
                         top_p=0.9 if is_sampling else None,
                         repetition_penalty=1.1,
                         use_cache=True,
+                        stopping_criteria=StoppingCriteriaList([StreamCancellationCriteria()]),
                         pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
                         eos_token_id=tokenizer.eos_token_id,
                     )
@@ -374,18 +383,18 @@ class LocalChatGenerator:
                     if torch.cuda.is_available():
                         torch.cuda.synchronize()
             except Exception as e:
+                if "out of memory" in str(e).lower() and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 loop.call_soon_threadsafe(async_queue.put_nowait, e)
             finally:
                 if inputs is not None:
                     del inputs
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                import gc
-                gc.collect()
 
         def _feeder_worker():
             try:
                 for chunk in streamer:
+                    if stop_event.is_set():
+                        break
                     loop.call_soon_threadsafe(async_queue.put_nowait, chunk)
                 loop.call_soon_threadsafe(async_queue.put_nowait, None)
             except Exception as e:
@@ -406,12 +415,9 @@ class LocalChatGenerator:
                     raise token
                 yield token
         finally:
-            gen_thread.join(timeout=1.0)
-            feed_thread.join(timeout=1.0)
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            import gc
-            gc.collect()
+            stop_event.set()
+            gen_thread.join(timeout=1.5)
+            feed_thread.join(timeout=1.5)
 
     async def generate_rag_stream(
         self,

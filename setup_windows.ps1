@@ -123,6 +123,8 @@ $Directories = @(
     "data/uploads",
     "data/artifacts/figures",
     "data/fine_tuning",
+    "data/downloads/mdu_scraped",
+    "data/qdrant_storage",
     "backups",
     "reports",
     "models",
