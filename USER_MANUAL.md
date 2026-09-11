@@ -359,11 +359,12 @@ Located at the very top of the interface, the global header provides persistent 
 - **Purpose & Use Case:** Authenticates administrative requests made from the browser. Without a valid key with the `admin` role, all telemetry endpoints, cortex commands, and scraper actions return `HTTP 401 Unauthorized` or `HTTP 403 Forbidden`.
 - **User Action:**
   1. Click into the text box.
-  2. Enter the administrative API key (default: `ragai_master_admin_key` or your custom key from `.env`).
+  2. Enter the administrative API key (default: `dev-secret-key-rag-university` or your custom key configured in `.env`).
   3. Click the **Set** button or press `Enter`.
-- **Behind the Scenes:** The value is saved to the browser's `localStorage` under the key `ragai_admin_token`. All subsequent asynchronous `fetch` requests automatically include the HTTP header:
+- **Behind the Scenes:** The value is saved to the browser's `localStorage` under the key `rag_admin_token`. For seamless local development, the admin console automatically pre-fills `dev-secret-key-rag-university` on fresh browser sessions. All subsequent asynchronous `fetch` requests automatically include the HTTP headers:
   ```http
   X-API-Key: <entered_token>
+  Authorization: Bearer <entered_token>
   ```
 - **Pro-Tip:** If you clear your browser cookies or use an Incognito window, this field must be re-entered.
 

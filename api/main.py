@@ -6,7 +6,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -245,6 +245,11 @@ async def admin_dashboard():
 @app.get("/chat", include_in_schema=False)
 async def student_chat():
     return FileResponse(os.path.join(static_dir, "chat.html"))
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🎓</text></svg>'
+    return Response(content=svg, media_type="image/svg+xml")
 
 @app.get("/api/v1/version", tags=["System"])
 async def api_version():

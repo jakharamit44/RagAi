@@ -2445,14 +2445,15 @@
 
     // Authentication token helper
     function getAuthHeaders() {
-      const token = localStorage.getItem("rag_admin_token") || "";
+      let token = (localStorage.getItem("rag_admin_token") || "").trim();
+      if (!token) {
+        token = "dev-secret-key-rag-university";
+        localStorage.setItem("rag_admin_token", token);
+      }
       const headers = { "Content-Type": "application/json" };
       if (token) {
-        if (token.startsWith("rag_") || token.startsWith("api_") || token.startsWith("key_")) {
-          headers["X-API-Key"] = token;
-        } else {
-          headers["Authorization"] = `Bearer ${token}`;
-        }
+        headers["X-API-Key"] = token;
+        headers["Authorization"] = `Bearer ${token}`;
       }
       return headers;
     }
@@ -3076,7 +3077,7 @@
       try {
         let d = null;
         try {
-          const res = await fetch('/api/v1/admin/rag/status');
+          const res = await fetch('/api/v1/admin/rag/status', { headers: getAuthHeaders() });
           if (res.ok) d = await res.json();
         } catch (err) {
           console.warn("Extended status error, falling back to /health:", err);
@@ -3084,8 +3085,9 @@
 
         if (!d) {
           const res = await fetch('/health');
-          d = await res.json();
+          if (res.ok) d = await res.json();
         }
+        if (!d) return;
 
         // 1. Documents & Chunks
         const docCount = d.pipeline ? d.pipeline.total_documents : (d.documents_indexed || 0);
@@ -3700,7 +3702,8 @@
         if (search) params.append('search', search);
         if (status !== 'all') params.append('status', status);
 
-        const res = await fetch(`/api/v1/manifest?${params.toString()}`);
+        const res = await fetch(`/api/v1/manifest?${params.toString()}`, { headers: getAuthHeaders() });
+        if (!res.ok) return;
         const data = await res.json();
 
         const entries = Array.isArray(data) ? data : (data.items || []);
@@ -4717,7 +4720,9 @@
     async function loadModelStatus() {
       try {
         const res = await fetch('/api/v1/admin/models/status', { headers: getAuthHeaders() });
+        if (!res.ok) return;
         const d = await res.json();
+        if (!d || !d.embedding_model || !d.reranker_model) return;
 
         // Token status
         const tokenBadge = document.getElementById('hf-token-badge');
@@ -6545,9 +6550,14 @@
 
 
     async function loadAllData() {
-      // Pre-fill token input if stored
-      const savedToken = localStorage.getItem("rag_admin_token") || "";
-      document.getElementById("admin-token").value = savedToken;
+      // Pre-fill token input if stored, or default to local dev admin key
+      let savedToken = (localStorage.getItem("rag_admin_token") || "").trim();
+      if (!savedToken) {
+        savedToken = "dev-secret-key-rag-university";
+        localStorage.setItem("rag_admin_token", savedToken);
+      }
+      const tokenInput = document.getElementById("admin-token");
+      if (tokenInput) tokenInput.value = savedToken;
 
       await loadHealth();
       await loadServicesHealth();
