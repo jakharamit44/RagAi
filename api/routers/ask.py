@@ -297,7 +297,7 @@ async def ask_question(
             latency_ms = duration_s * 1000
             RAG_QUERY_TOTAL.labels(status="success", served_by="local", department=dept_label).inc()
             RAG_QUERY_DURATION.labels(served_by="local").observe(duration_s)
-            asyncio.create_task(record_audit(req.question, served_by="tiered_context_l1", latency_ms=latency_ms, tokens=len(l1_answer["answer"].split())))
+            _spawn_bg_task(record_audit(req.question, served_by="tiered_context_l1", latency_ms=latency_ms, tokens=len(l1_answer["answer"].split())))
             logger.info(f"OpenViking L1 Overview Fast-Path served for query: '{req.question[:40]}...' (Latency: {latency_ms:.2f}ms, Saved ~{l1_answer.get('tokens_saved_approx')} tokens)")
 
             citations = [Citation(**c) for c in l1_answer.get("citations", [])]

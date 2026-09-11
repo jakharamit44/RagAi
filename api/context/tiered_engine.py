@@ -51,12 +51,14 @@ class TieredContextEngine:
         self._tree_cache: Optional[Dict[str, Any]] = None
         self._tree_cache_time: float = 0.0
         self._cache_ttl: float = 300.0  # 5 minutes
+        self._node_embeddings: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
 
     def invalidate_cache(self):
-        """Invalidates in-memory tree cache."""
+        """Invalidates in-memory tree cache and node vector index."""
         self._tree_cache = None
         self._tree_cache_time = 0.0
+        self._node_embeddings.clear()
 
     @staticmethod
     def estimate_tokens(text: str) -> int:
@@ -196,180 +198,203 @@ class TieredContextEngine:
         Scans SQLite metadata and ensures all Departments, Courses, and Documents
         have up-to-date ContextTier records adhering to the `ragai://` URI protocol.
         """
-        logger.info("Synchronizing OpenViking-style ContextTier records in SQLite...")
-        async with async_session_factory() as session:
-            # 1. Ensure Root context node
-            root_uri = "ragai://knowledge"
-            q_root = await session.execute(select(ContextTier).where(ContextTier.uri == root_uri))
-            root_tier = q_root.scalars().first()
-            if not root_tier:
-                root_tier = ContextTier(
-                    uri=root_uri,
-                    tier_type="root",
-                    department="University",
-                    course="All",
-                    title="University Knowledge Cortex Root",
-                    l0_abstract="Central virtual filesystem root containing all faculty curricula, institutional ordinances, and course repositories.",
-                    l1_overview="# University Knowledge Cortex Root (L1)\n\nCentral root node uniting all faculties, departments, and course curricula.",
-                    l2_chunk_count=0,
-                    token_count_l0=22,
-                    token_count_l1=40,
-                    metadata_json=json.dumps({"subsystems": ["departments", "brain_concepts", "notices"]})
+        async with self._lock:
+            logger.info("Synchronizing OpenViking-style ContextTier records in SQLite...")
+            async with async_session_factory() as session:
+                # 1. Ensure Root context node
+                root_uri = "ragai://knowledge"
+                q_root = await session.execute(select(ContextTier).where(ContextTier.uri == root_uri))
+                root_tier = q_root.scalars().first()
+                if not root_tier:
+                    root_tier = ContextTier(
+                        uri=root_uri,
+                        tier_type="root",
+                        department="University",
+                        course="All",
+                        title="University Knowledge Cortex Root",
+                        l0_abstract="Central virtual filesystem root containing all faculty curricula, institutional ordinances, and course repositories.",
+                        l1_overview="# University Knowledge Cortex Root (L1)\n\nCentral root node uniting all faculties, departments, and course curricula.",
+                        l2_chunk_count=0,
+                        token_count_l0=22,
+                        token_count_l1=40,
+                        metadata_json=json.dumps({"subsystems": ["departments", "brain_concepts", "notices"]})
+                    )
+                    session.add(root_tier)
+
+                # 2. Collect unique departments and courses
+                docs_q = await session.execute(
+                    select(Document).order_by(Document.department, Document.course, Document.created_at)
                 )
-                session.add(root_tier)
+                all_docs = docs_q.scalars().all()
 
-            # 2. Fetch all Documents and their Chunks
-            doc_q = await session.execute(select(Document))
-            documents = doc_q.scalars().all()
+                # Process Documents & build L0/L1
+                dept_courses: Dict[str, Dict[str, List[Document]]] = {}
+                for doc in all_docs:
+                    dept = doc.department or "General"
+                    course = doc.course or "General Studies"
+                    dept_courses.setdefault(dept, {}).setdefault(course, []).append(doc)
 
-            dept_courses: Dict[str, Dict[str, List[Document]]] = {}
+                    # Check or create document tier
+                    doc_slug = clean_slug(doc.title or doc.file_name or str(doc.id))
+                    dept_slug = clean_slug(dept)
+                    course_slug = clean_slug(course)
+                    doc_uri = f"ragai://knowledge/{dept_slug}/{course_slug}/{doc_slug}"
 
-            for doc in documents:
-                dept = doc.department or "General"
-                course = doc.course or "General"
-                dept_courses.setdefault(dept, {}).setdefault(course, []).append(doc)
+                    # Fetch existing
+                    q_doc = await session.execute(select(ContextTier).where(ContextTier.uri == doc_uri))
+                    doc_tier = q_doc.scalars().first()
 
-                doc_slug = clean_slug(doc.title)
-                dept_slug = clean_slug(dept)
-                course_slug = clean_slug(course)
-                doc_uri = f"ragai://knowledge/{dept_slug}/{course_slug}/{doc_slug}"
+                    # Fetch chunks
+                    chunks_q = await session.execute(
+                        select(Chunk).where(Chunk.document_id == doc.id).order_by(Chunk.page_number)
+                    )
+                    chunks = chunks_q.scalars().all()
+                    chunk_dicts = [{"text": c.text, "section": c.section, "page": c.page_number} for c in chunks]
 
-                q_check = await session.execute(select(ContextTier).where(ContextTier.uri == doc_uri))
-                existing = q_check.scalars().first()
-
-                # Fetch chunks for this document
-                chunk_q = await session.execute(select(Chunk).where(Chunk.document_id == doc.id))
-                chunks = [{"text": c.text, "page_number": c.page_number, "section": c.section} for c in chunk_q.scalars().all()]
-                l2_count = len(chunks)
-
-                l0, l1, tok_l0, tok_l1 = self.synthesize_document_l0_l1(
-                    title=doc.title,
-                    department=dept,
-                    course=course,
-                    chunks=chunks
-                )
-
-                if not existing:
-                    new_tier = ContextTier(
-                        uri=doc_uri,
-                        tier_type="document",
+                    l0, l1, tok_l0, tok_l1 = self.synthesize_document_l0_l1(
+                        title=doc.title or doc.file_name or "Untitled Document",
                         department=dept,
                         course=course,
-                        title=doc.title,
-                        document_id=doc.id,
-                        l0_abstract=l0,
-                        l1_overview=l1,
-                        l2_chunk_count=l2_count,
-                        token_count_l0=tok_l0,
-                        token_count_l1=tok_l1,
-                        metadata_json=json.dumps({"doc_type": doc.doc_type, "ocr_confidence": doc.ocr_confidence})
-                    )
-                    session.add(new_tier)
-                else:
-                    existing.l0_abstract = l0
-                    existing.l1_overview = l1
-                    existing.l2_chunk_count = l2_count
-                    existing.token_count_l0 = tok_l0
-                    existing.token_count_l1 = tok_l1
-                    existing.title = doc.title
-
-            # 3. Create / Update Department & Course intermediate tiers
-            for dept, courses in dept_courses.items():
-                dept_slug = clean_slug(dept)
-                dept_uri = f"ragai://knowledge/{dept_slug}"
-                q_dept = await session.execute(select(ContextTier).where(ContextTier.uri == dept_uri))
-                dept_tier = q_dept.scalars().first()
-
-                dept_doc_count = sum(len(docs) for docs in courses.values())
-                course_names = list(courses.keys())
-
-                dept_l0 = f"Faculty branch of {dept} overseeing {len(courses)} courses and {dept_doc_count} official curricula documents."
-                dept_l1 = (
-                    f"# Department of {dept} — Faculty Context Map (L1)\n\n"
-                    f"### Overview\n"
-                    f"Official repository of curriculum frameworks, course modules, and academic notices for **{dept}**.\n\n"
-                    f"### Active Course Modules ({len(courses)})\n"
-                    + "\n".join([f"- **{c}**: {len(courses[c])} verified syllabus documents" for c in course_names])
-                )
-
-                if not dept_tier:
-                    dept_tier = ContextTier(
-                        uri=dept_uri,
-                        tier_type="department",
-                        department=dept,
-                        course=None,
-                        title=f"Department of {dept}",
-                        l0_abstract=dept_l0,
-                        l1_overview=dept_l1,
-                        l2_chunk_count=dept_doc_count,
-                        token_count_l0=self.estimate_tokens(dept_l0),
-                        token_count_l1=self.estimate_tokens(dept_l1),
-                        metadata_json=json.dumps({"courses": course_names})
-                    )
-                    session.add(dept_tier)
-                else:
-                    dept_tier.l0_abstract = dept_l0
-                    dept_tier.l1_overview = dept_l1
-                    dept_tier.token_count_l0 = self.estimate_tokens(dept_l0)
-                    dept_tier.token_count_l1 = self.estimate_tokens(dept_l1)
-
-                for course, docs in courses.items():
-                    course_slug = clean_slug(course)
-                    course_uri = f"ragai://knowledge/{dept_slug}/{course_slug}"
-                    q_course = await session.execute(select(ContextTier).where(ContextTier.uri == course_uri))
-                    course_tier = q_course.scalars().first()
-
-                    course_l0 = f"Curriculum and syllabus repository for {course} in {dept} containing {len(docs)} foundational texts."
-                    course_l1 = (
-                        f"# {course} — Course Syllabus & Repository Map (L1)\n\n"
-                        f"- **Department:** {dept}\n"
-                        f"- **Course Code / Name:** {course}\n"
-                        f"- **Primary Ingested Texts:** {len(docs)} documents\n\n"
-                        f"### Ingested Documents\n"
-                        + "\n".join([f"- **{d.title}** (`ragai://knowledge/{dept_slug}/{course_slug}/{clean_slug(d.title)}`)" for d in docs])
+                        chunks=chunk_dicts
                     )
 
-                    if not course_tier:
-                        course_tier = ContextTier(
-                            uri=course_uri,
-                            tier_type="course",
+                    if not doc_tier:
+                        doc_tier = ContextTier(
+                            uri=doc_uri,
+                            tier_type="document",
                             department=dept,
                             course=course,
-                            title=f"Course {course}",
-                            l0_abstract=course_l0,
-                            l1_overview=course_l1,
-                            l2_chunk_count=len(docs),
-                            token_count_l0=self.estimate_tokens(course_l0),
-                            token_count_l1=self.estimate_tokens(course_l1),
-                            metadata_json=json.dumps({"document_count": len(docs)})
+                            title=doc.title or doc.file_name,
+                            document_id=doc.id,
+                            l0_abstract=l0,
+                            l1_overview=l1,
+                            l2_chunk_count=len(chunks),
+                            token_count_l0=tok_l0,
+                            token_count_l1=tok_l1,
+                            metadata_json=json.dumps({"file_type": doc.file_type, "chunk_count": len(chunks)})
                         )
-                        session.add(course_tier)
+                        session.add(doc_tier)
                     else:
-                        course_tier.l0_abstract = course_l0
-                        course_tier.l1_overview = course_l1
-                        course_tier.token_count_l0 = self.estimate_tokens(course_l0)
-                        course_tier.token_count_l1 = self.estimate_tokens(course_l1)
+                        doc_tier.l0_abstract = l0
+                        doc_tier.l1_overview = l1
+                        doc_tier.l2_chunk_count = len(chunks)
+                        doc_tier.token_count_l0 = tok_l0
+                        doc_tier.token_count_l1 = tok_l1
 
-            await session.commit()
-            self.invalidate_cache()
-            logger.info("Successfully synchronized OpenViking-style ContextTier records.")
+                # 3. Synchronize Department Tiers
+                for dept, courses in dept_courses.items():
+                    dept_slug = clean_slug(dept)
+                    dept_uri = f"ragai://knowledge/{dept_slug}"
+
+                    q_d = await session.execute(select(ContextTier).where(ContextTier.uri == dept_uri))
+                    dept_tier = q_d.scalars().first()
+
+                    total_dept_docs = sum(len(docs) for docs in courses.values())
+                    course_names = list(courses.keys())
+                    course_list_str = ", ".join(course_names[:8])
+                    dept_l0 = (
+                        f"Department of {dept} academic repository containing {len(courses)} accredited courses "
+                        f"({course_list_str}) with {total_dept_docs} official syllabi and lecture modules."
+                    )
+                    dept_l1 = (
+                        f"# Department of {dept} — Faculty Curriculum Roadmap (L1)\n\n"
+                        f"### Active Courses & Academic Programs\n"
+                        + "\n".join([f"- **{c}** ({len(docs)} documents registered)" for c, docs in courses.items()])
+                        + f"\n\n### Total Curriculum Footprint\n"
+                        f"- Total Courses: {len(courses)}\n"
+                        f"- Total Ingested Documents: {total_dept_docs}\n"
+                    )
+
+                    if not dept_tier:
+                        dept_tier = ContextTier(
+                            uri=dept_uri,
+                            tier_type="department",
+                            department=dept,
+                            course="All",
+                            title=f"Department of {dept}",
+                            l0_abstract=dept_l0,
+                            l1_overview=dept_l1,
+                            l2_chunk_count=0,
+                            token_count_l0=self.estimate_tokens(dept_l0),
+                            token_count_l1=self.estimate_tokens(dept_l1),
+                            metadata_json=json.dumps({"course_count": len(courses), "document_count": total_dept_docs})
+                        )
+                        session.add(dept_tier)
+                    else:
+                        dept_tier.l0_abstract = dept_l0
+                        dept_tier.l1_overview = dept_l1
+                        dept_tier.token_count_l0 = self.estimate_tokens(dept_l0)
+                        dept_tier.token_count_l1 = self.estimate_tokens(dept_l1)
+
+                    # 4. Synchronize Course Tiers
+                    for course, docs in courses.items():
+                        course_slug = clean_slug(course)
+                        course_uri = f"ragai://knowledge/{dept_slug}/{course_slug}"
+
+                        q_c = await session.execute(select(ContextTier).where(ContextTier.uri == course_uri))
+                        course_tier = q_c.scalars().first()
+
+                        doc_titles = [d.title or d.file_name for d in docs]
+                        course_l0 = (
+                            f"Accredited course '{course}' offered by {dept}, encompassing {len(docs)} reference documents "
+                            f"covering foundational theories, practical exercises, and examination preparation."
+                        )
+                        course_l1 = (
+                            f"# {course} ({dept}) — Course Syllabus Overview (L1)\n\n"
+                            f"### Course Reference Documents\n"
+                            + "\n".join([f"- **{t}**" for t in doc_titles])
+                            + f"\n\n### Learning Outcomes & Competencies\n"
+                            f"- Comprehensive theoretical foundation in {course}.\n"
+                            f"- Practical problem solving and algorithmic analysis.\n"
+                            f"- Preparation for university end-semester examinations.\n"
+                        )
+
+                        if not course_tier:
+                            course_tier = ContextTier(
+                                uri=course_uri,
+                                tier_type="course",
+                                department=dept,
+                                course=course,
+                                title=f"{course} Overview",
+                                l0_abstract=course_l0,
+                                l1_overview=course_l1,
+                                l2_chunk_count=0,
+                                token_count_l0=self.estimate_tokens(course_l0),
+                                token_count_l1=self.estimate_tokens(course_l1),
+                                metadata_json=json.dumps({"document_count": len(docs)})
+                            )
+                            session.add(course_tier)
+                        else:
+                            course_tier.l0_abstract = course_l0
+                            course_tier.l1_overview = course_l1
+                            course_tier.token_count_l0 = self.estimate_tokens(course_l0)
+                            course_tier.token_count_l1 = self.estimate_tokens(course_l1)
+
+                await session.commit()
+                self.invalidate_cache()
+                logger.info("Successfully synchronized OpenViking-style ContextTier records.")
 
     async def get_tree(self, department: Optional[str] = None) -> Dict[str, Any]:
         """
         Returns the hierarchical virtual context filesystem tree mirroring OpenViking's `ov tree`.
         """
-        async with async_session_factory() as session:
-            # Query all tiers
-            q = select(ContextTier).order_by(ContextTier.tier_type, ContextTier.title)
-            if department and department.lower() not in ("all", "*", "any"):
-                q = q.where(or_(ContextTier.department == department, ContextTier.tier_type == "root"))
+        import time
+        now = time.time()
+        if not department and self._tree_cache and (now - self._tree_cache_time) < self._cache_ttl:
+            return self._tree_cache
 
+        q = select(ContextTier).order_by(ContextTier.tier_type, ContextTier.title)
+        if department and department.lower() not in ("all", "*", "any"):
+            q = q.where(or_(ContextTier.department == department, ContextTier.tier_type == "root"))
+
+        async with async_session_factory() as session:
             res = await session.execute(q)
             tiers = res.scalars().all()
 
-            if not tiers:
-                # First run or empty -> trigger sync
-                await self.sync_database_tiers()
+        if not tiers:
+            # First run or empty -> trigger sync outside any session
+            await self.sync_database_tiers()
+            async with async_session_factory() as session:
                 res = await session.execute(q)
                 tiers = res.scalars().all()
 
@@ -440,6 +465,10 @@ class TieredContextEngine:
                 elif dept_slug in dept_map:
                     dept_map[dept_slug]["children"].append(doc_entry)
 
+        if not department:
+            self._tree_cache = root_node
+            self._tree_cache_time = now
+
         return root_node
 
     async def list_directory(self, uri: str = "ragai://knowledge") -> List[Dict[str, Any]]:
@@ -458,10 +487,9 @@ class TieredContextEngine:
                 q = await session.execute(
                     select(ContextTier).where(ContextTier.uri.startswith(prefix))
                 )
-                all_descendants = q.scalars().all()
-                # Filter to only immediate children
+                candidates = q.scalars().all()
                 items = []
-                for d in all_descendants:
+                for d in candidates:
                     sub_path = d.uri[len(prefix):]
                     if "/" not in sub_path:
                         items.append(d)
@@ -471,6 +499,7 @@ class TieredContextEngine:
                     "uri": item.uri,
                     "title": item.title,
                     "tier_type": item.tier_type,
+                    "type": item.tier_type,
                     "department": item.department,
                     "course": item.course,
                     "l0_abstract": item.l0_abstract,
@@ -571,25 +600,31 @@ class TieredContextEngine:
         if not nodes:
             return []
 
-        # Embed query
+        # Embed query (1 vector)
         query_vec = await asyncio.to_thread(embedder.embed_query, query)
         query_vec = np.array(query_vec, dtype=np.float32)
         q_norm = np.linalg.norm(query_vec)
         if q_norm > 0:
             query_vec /= q_norm
 
-        # Embed L0 abstracts in batch
-        texts_to_embed = [f"{n.title}. {n.l0_abstract}" for n in nodes]
-        embeddings = await asyncio.to_thread(embedder.embed_texts, texts_to_embed)
+        # Compute embeddings for any missing nodes and cache in-memory
+        missing_nodes = [n for n in nodes if n.uri not in self._node_embeddings]
+        if missing_nodes:
+            texts_to_embed = [f"{n.title}. {n.l0_abstract}" for n in missing_nodes]
+            new_embs = await asyncio.to_thread(embedder.embed_texts, texts_to_embed)
+            for n, emb in zip(missing_nodes, new_embs):
+                e_arr = np.array(emb, dtype=np.float32)
+                e_norm = np.linalg.norm(e_arr)
+                if e_norm > 0:
+                    e_arr /= e_norm
+                self._node_embeddings[n.uri] = e_arr
 
         scored: List[Tuple[float, ContextTier]] = []
-        for emb, node in zip(embeddings, nodes):
-            e_arr = np.array(emb, dtype=np.float32)
-            e_norm = np.linalg.norm(e_arr)
-            if e_norm > 0:
-                e_arr /= e_norm
-            sim = float(np.dot(query_vec, e_arr))
-            scored.append((sim, node))
+        for node in nodes:
+            e_arr = self._node_embeddings.get(node.uri)
+            if e_arr is not None:
+                sim = float(np.dot(query_vec, e_arr))
+                scored.append((sim, node))
 
         scored.sort(key=lambda x: x[0], reverse=True)
 
@@ -626,15 +661,16 @@ class TieredContextEngine:
         Fast-path L1 retrieval: Directly synthesizes an answer using the Course or Document
         L1 Structured Synopsis, bypassing heavy L2 chunk generation for 85% token & latency savings.
         """
-        async with async_session_factory() as session:
-            # 1. Look for matching Course tier
-            if course:
-                q = await session.execute(
-                    select(ContextTier).where(
-                        ContextTier.tier_type.in_(["course", "document"]),
-                        ContextTier.course.ilike(f"%{course}%")
-                    )
+        # 1. Look for matching Course tier with department scoping
+        if course:
+            async with async_session_factory() as session:
+                stmt = select(ContextTier).where(
+                    ContextTier.tier_type.in_(["course", "document"]),
+                    ContextTier.course.ilike(f"%{course}%")
                 )
+                if department and department.lower() not in ("all", "*", "any"):
+                    stmt = stmt.where(ContextTier.department == department)
+                q = await session.execute(stmt)
                 match = q.scalars().first()
                 if match:
                     return {
@@ -653,26 +689,33 @@ class TieredContextEngine:
                         "tokens_saved_approx": 1800
                     }
 
-            # 2. Fallback to semantic_find over course & document tiers
+        # 2. Fallback to department-scoped semantic_find over course & document tiers
+        scoped_base = (
+            f"ragai://knowledge/{clean_slug(department)}"
+            if department and department.lower() not in ("all", "*", "any")
+            else "ragai://knowledge"
+        )
+        matches = await self.semantic_find(query, base_uri=scoped_base, top_k=1)
+        if not matches and scoped_base != "ragai://knowledge":
             matches = await self.semantic_find(query, base_uri="ragai://knowledge", top_k=1)
-            if matches and matches[0]["score"] >= 0.45:
-                top_match = matches[0]
-                resolved = await self.resolve_uri(top_match["uri"], tier="l1")
-                return {
-                    "answer": resolved["content"],
-                    "citations": [
-                        {
-                            "document_id": str(top_match.get("document_id") or top_match.get("uri")),
-                            "title": top_match["title"],
-                            "page_number": 1,
-                            "section": "L1 Overview",
-                            "snippet": top_match["l0_abstract"]
-                        }
-                    ],
-                    "served_by": "tiered_context_l1",
-                    "uri": top_match["uri"],
-                    "tokens_saved_approx": 1600
-                }
+        if matches and matches[0]["score"] >= 0.45:
+            top_match = matches[0]
+            resolved = await self.resolve_uri(top_match["uri"], tier="l1")
+            return {
+                "answer": resolved["content"],
+                "citations": [
+                    {
+                        "document_id": str(top_match.get("document_id") or top_match.get("uri")),
+                        "title": top_match["title"],
+                        "page_number": 1,
+                        "section": "L1 Overview",
+                        "snippet": top_match["l0_abstract"]
+                    }
+                ],
+                "served_by": "tiered_context_l1",
+                "uri": top_match["uri"],
+                "tokens_saved_approx": 1600
+            }
 
         return None
 

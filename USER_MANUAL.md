@@ -120,10 +120,10 @@
    - 3.16 [Tab 12: Context Filesystem & Tiered Storage Explorer (tab-context)](#316-tab-12-context-filesystem--tiered-storage-explorer-tab-context)
      - 3.16.1 [Virtual Context Telemetry & Token Savings Bento Cards](#3161-virtual-context-telemetry--token-savings-bento-cards)
      - 3.16.2 ["Re-Sync Tiers" Synchronization Button](#3162-re-sync-tiers-synchronization-button)
-     - 3.16.3 [Tree Filter Input (context-tree-filter)](#3163-tree-filter-input-context-tree-filter)
+     - 3.16.3 [Tree Filter Input (ctx-tree-filter)](#3163-tree-filter-input-ctx-tree-filter)
      - 3.16.4 [Split-Pane Hierarchical Virtual Filesystem Tree](#3164-split-pane-hierarchical-virtual-filesystem-tree)
      - 3.16.5 [Glassmorphic Tier Inspector (L0 / L1 / L2 / Metadata) & "Copy URI" Action](#3165-glassmorphic-tier-inspector-l0--l1--l2--metadata--copy-uri-action)
-     - 3.16.6 [OpenViking Semantic Search Console (context-find-input & "Search Context")](#3166-openviking-semantic-search-console-context-find-input--search-context)
+     - 3.16.6 [OpenViking Semantic Search Console (ctx-find-input & "Search Context")](#3166-openviking-semantic-search-console-ctx-find-input--search-context)
 4. [Student Chat Portal (/chat) — Complete User Guide](#4-student-chat-portal-chat--complete-user-guide)
    - 4.1 [Academic Scope Selectors](#41-academic-scope-selectors)
      - 4.1.1 [Department Select Dropdown (chat-dept-select)](#411-department-select-dropdown-chat-dept-select)
@@ -1174,26 +1174,26 @@ Displays real-time metrics across the hierarchical virtual filesystem:
 - **UI Identifier:** `<button onclick="triggerContextSync()" class="btn-secondary btn-sm">Re-Sync Tiers ⟳</button>`
 - **Purpose & Use Case:** Re-scans all ingested documents across all departments, re-synthesizes deterministic L0 abstracts and L1 curricular overviews, and refreshes the in-memory virtual context tree.
 
-#### 3.16.3 Tree Filter Input (`context-tree-filter`)
-- **UI Identifier:** `<input id="context-tree-filter" type="text" placeholder="Filter tree..." oninput="filterContextTree()">`
+#### 3.16.3 Tree Filter Input (`ctx-tree-filter`)
+- **UI Identifier:** `<input id="ctx-tree-filter" type="text" placeholder="Filter tree by course, dept, or document..." oninput="filterContextTree()">`
 - **Purpose & Use Case:** Real-time search filter for the virtual tree. Instantly hides non-matching branches as you type department names, course codes, or document titles.
 
 #### 3.16.4 Split-Pane Hierarchical Virtual Filesystem Tree
-- **UI Identifier:** `<div id="context-tree-container" class="context-tree-box">`
+- **UI Identifier:** `<div id="ctx-tree-container" class="flex-1 overflow-y-auto space-y-1 text-xs font-mono pr-1 select-none">`
 - **Purpose & Use Case:** Renders interactive, collapsible directory tree nodes (`ragai://knowledge/...`). Clicking any node loads its tiered details into the right-hand inspector without page reloads.
 
 #### 3.16.5 Glassmorphic Tier Inspector (L0 / L1 / L2 / Metadata) & "Copy URI" Action
 - **UI Identifiers:**
-  - `context-detail-uri`: Displays the absolute `ragai://` URI path of the active node.
+  - `ctx-insp-uri`: Displays the absolute `ragai://` URI path of the active node.
   - `<button onclick="copyContextUri()">Copy URI</button>`: Copies the virtual URI to the system clipboard for use in API calls or agent workflows.
-  - Tier Switch Tabs: `L0 Abstract`, `L1 Overview`, `L2 Chunks`, `Metadata`.
-  - `context-detail-content`: Formatted viewer displaying the selected tier's synopsis or verbatim chunks.
+  - Tier Switch Tabs: `btn-tier-l0`, `btn-tier-l1`, `btn-tier-l2`.
+  - `ctx-insp-content`: Formatted viewer displaying the selected tier's synopsis or verbatim chunks.
 
-#### 3.16.6 OpenViking Semantic Search Console (`context-find-input` & "Search Context")
+#### 3.16.6 OpenViking Semantic Search Console (`ctx-find-input` & "Search Context")
 - **UI Identifiers:**
-  - `<input id="context-find-input" placeholder="e.g. Peterson algorithm critical section or leave policy...">`
-  - `<button onclick="executeContextFind()" class="btn-secondary btn-sm">Search Context</button>`
-  - `<div id="context-find-results">`: List of semantically ranked context nodes matching the query.
+  - `<input id="ctx-find-input" placeholder="e.g. Operating system deadlock Banker's algorithm...">`
+  - `<button onclick="executeContextFind()" id="btn-ctx-find" class="btn-secondary btn-sm">Search Context</button>`
+  - `<div id="ctx-find-results">`: Container with `<tbody id="ctx-find-tbody">` listing semantically ranked context nodes matching the query.
 - **Purpose & Use Case:** Emulates OpenViking's `ov find` operation. Performs directory-guided semantic search over L0/L1 abstractions, allowing operators and external agents to pinpoint exact knowledge branches without loading raw chunk blobs into the LLM context.
 
 ---

@@ -19,13 +19,13 @@ router = APIRouter(prefix="/api/v1/context", tags=["Context Filesystem (OpenViki
 
 class ContextFindRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500, description="Semantic search query")
-    base_uri: Optional[str] = Field(default="ragai://knowledge", description="Virtual filesystem base URI to scope search")
+    base_uri: Optional[str] = Field(default="ragai://knowledge", max_length=512, pattern=r"^ragai://[a-zA-Z0-9_\-\./]*$", description="Virtual filesystem base URI to scope search")
     top_k: int = Field(default=5, ge=1, le=25, description="Maximum matches to return")
 
 
 @router.get("/tree", summary="Get Hierarchical Virtual Context Tree")
 async def get_context_tree(
-    department: Optional[str] = Query(None, description="Optional department filter")
+    department: Optional[str] = Query(None, max_length=120, description="Optional department filter")
 ):
     """
     Returns the complete hierarchical context tree mirroring OpenViking's `ov tree` command.
@@ -44,7 +44,7 @@ async def get_context_tree(
 
 @router.get("/ls", summary="List Directory Contents (OpenViking ls)")
 async def list_context_directory(
-    uri: str = Query("ragai://knowledge", description="Virtual filesystem directory URI to inspect")
+    uri: str = Query("ragai://knowledge", max_length=512, pattern=r"^ragai://[a-zA-Z0-9_\-\./]*$", description="Virtual filesystem directory URI to inspect")
 ):
     """
     Simulates the OpenViking `ls` operation. Lists direct child entries under any `ragai://` URI,
@@ -68,7 +68,7 @@ async def list_context_directory(
 
 @router.get("/resolve", summary="Resolve Context by URI and Tier (OpenViking read)")
 async def resolve_context_uri(
-    uri: str = Query(..., description="Target ragai:// URI to resolve"),
+    uri: str = Query(..., max_length=512, pattern=r"^ragai://[a-zA-Z0-9_\-\./]*$", description="Target ragai:// URI to resolve"),
     tier: str = Query("l1", pattern="^(l0|l1|l2|all)$", description="Target context tier: l0 (abstract), l1 (overview), l2 (deep chunks)")
 ):
     """

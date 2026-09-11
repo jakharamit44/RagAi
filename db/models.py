@@ -312,7 +312,7 @@ class ContextTier(Base):
     __tablename__ = "context_tiers"
 
     id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    uri = Column(String(255), unique=True, nullable=False, index=True)
+    uri = Column(String(512), unique=True, nullable=False, index=True)
     tier_type = Column(String(50), nullable=False, index=True)  # root, department, course, document, concept
     department = Column(String(100), nullable=True, index=True)
     course = Column(String(100), nullable=True, index=True)

@@ -1,0 +1,354 @@
+{
+  "test_cases": [
+    {
+      "suite": "Context Tree",
+      "name": "Unfiltered Hierarchy",
+      "status": "PASS",
+      "latency_ms": 126.79,
+      "details": "Root: ragai://knowledge, Depts: 4, Courses: 5, Docs: 77",
+      "extra": {
+        "dept_count": 4,
+        "courses": 5,
+        "docs": 77
+      }
+    },
+    {
+      "suite": "Context Tree",
+      "name": "Department Filter (ComputerScience)",
+      "status": "PASS",
+      "latency_ms": 10.59,
+      "details": "Filtered departments returned: ['ComputerScience']",
+      "extra": {
+        "returned_departments": [
+          "ComputerScience"
+        ]
+      }
+    },
+    {
+      "suite": "Context Tree",
+      "name": "Non-Existent Dept Filter",
+      "status": "PASS",
+      "latency_ms": 5.03,
+      "details": "Returned root with 0 child departments as expected",
+      "extra": {
+        "children_count": 0
+      }
+    },
+    {
+      "suite": "Context ls",
+      "name": "Root Directory Listing",
+      "status": "PASS",
+      "latency_ms": 10.1,
+      "details": "Returned 4 department nodes under ragai://knowledge",
+      "extra": {
+        "count": 4
+      }
+    },
+    {
+      "suite": "Context ls",
+      "name": "Department Branch Listing",
+      "status": "PASS",
+      "latency_ms": 14.56,
+      "details": "Listed courses under ComputerScience: ['CS401']",
+      "extra": {
+        "courses": [
+          "CS401"
+        ]
+      }
+    },
+    {
+      "suite": "Context ls",
+      "name": "Course Deep Document Listing",
+      "status": "PASS",
+      "latency_ms": 7.22,
+      "details": "Found 3 documents. Sample L0 tokens: 23, L2 chunks: 1",
+      "extra": {
+        "document_count": 3,
+        "sample": "course_syllabus.txt"
+      }
+    },
+    {
+      "suite": "Context Resolve",
+      "name": "Tier L0 (Dense Abstract)",
+      "status": "PASS",
+      "latency_ms": 16.28,
+      "details": "L0 resolved: 23 tokens, Content: 'Official university academic curriculum material f...'",
+      "extra": {
+        "tokens": 23
+      }
+    },
+    {
+      "suite": "Context Resolve",
+      "name": "Tier L1 (Curricular Synopsis)",
+      "status": "PASS",
+      "latency_ms": 10.75,
+      "details": "L1 resolved: 164 tokens, Contains modular unit outline",
+      "extra": {
+        "tokens": 164
+      }
+    },
+    {
+      "suite": "Context Resolve",
+      "name": "Tier L2 (Deep Verbatim Chunks)",
+      "status": "PASS",
+      "latency_ms": 12.94,
+      "details": "L2 resolved: 1 chunks, total tokens: 27",
+      "extra": {
+        "chunks_count": 1,
+        "tokens": 27
+      }
+    },
+    {
+      "suite": "Context Resolve",
+      "name": "Tier 'all' Complete Bundle",
+      "status": "PASS",
+      "latency_ms": 20.86,
+      "details": "Bundled L0, L1, and L2 metadata (1 chunks)",
+      "extra": {
+        "l2_chunks": 1
+      }
+    },
+    {
+      "suite": "Context Resolve",
+      "name": "Boundary: Non-Existent URI -> 404 RFC 7807",
+      "status": "PASS",
+      "latency_ms": 50.22,
+      "details": "Status 404 RFC 7807: type='https://ragai.mdu.ac.in/errors/not-found', detail='Context URI 'ragai://knowledge/Mathematics/Topology/Euler.pdf' not found in virtual filesystem.'",
+      "extra": {
+        "body": {
+          "type": "https://ragai.mdu.ac.in/errors/not-found",
+          "title": "Not Found",
+          "status": 404,
+          "detail": "Context URI 'ragai://knowledge/Mathematics/Topology/Euler.pdf' not found in virtual filesystem.",
+          "instance": "urn:ragai:request:740382ab-149e-40b4-9778-bb66efa7e890",
+          "error": {
+            "code": "not_found",
+            "message": "Context URI 'ragai://knowledge/Mathematics/Topology/Euler.pdf' not found in virtual filesystem.",
+            "status_code": 404,
+            "request_id": "740382ab-149e-40b4-9778-bb66efa7e890",
+            "details": null
+          }
+        }
+      }
+    },
+    {
+      "suite": "Context Resolve",
+      "name": "Validation: Invalid Tier Regex -> 422 Unprocessable",
+      "status": "PASS",
+      "latency_ms": 5.48,
+      "details": "Status 422, Pydantic validation rejected invalid tier query parameter",
+      "extra": {
+        "error_detail": {
+          "code": "validation_error",
+          "message": "The request body or parameters failed validation.",
+          "status_code": 422,
+          "request_id": "9a7eda46-02a3-424a-a08a-de0149fb8533",
+          "details": [
+            {
+              "loc": [
+                "query",
+                "tier"
+              ],
+              "msg": "String should match pattern '^(l0|l1|l2|all)$'",
+              "type": "string_pattern_mismatch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "suite": "Context Find",
+      "name": "Semantic Search: Academic Syllabi",
+      "status": "PASS",
+      "latency_ms": 14161.77,
+      "details": "Found 4 matches. Top: 'Department of ComputerScience' (Score: 0.3249)",
+      "extra": {
+        "top_uri": "ragai://knowledge/ComputerScience",
+        "top_score": 0.3249
+      }
+    },
+    {
+      "suite": "Context Find",
+      "name": "Semantic Search: Exam Rules",
+      "status": "PASS",
+      "latency_ms": 75.55,
+      "details": "Found 4 matches. Top: '4_09-04-2023_12-37-29_Notification regardin partial modification in schedule of exams.pdf' (Score: 0.4316)",
+      "extra": {
+        "top_uri": "ragai://knowledge/General/PDFs/4_09-04-2023_12-37-29_Notification_regardin_partial_modification_in_schedule_of_exams.pdf",
+        "top_score": 0.4316
+      }
+    },
+    {
+      "suite": "Context Find",
+      "name": "Semantic Search: Algorithms",
+      "status": "PASS",
+      "latency_ms": 62.54,
+      "details": "Found 4 matches. Top: 'Department of ComputerScience' (Score: 0.2647)",
+      "extra": {
+        "top_uri": "ragai://knowledge/ComputerScience",
+        "top_score": 0.2647
+      }
+    },
+    {
+      "suite": "Context Find",
+      "name": "Directory-Scoped Base URI Filter",
+      "status": "PASS",
+      "latency_ms": 83.91,
+      "details": "All 3 returned matches strictly adhere to base_uri prefix",
+      "extra": {
+        "matches_count": 3
+      }
+    },
+    {
+      "suite": "Context Stats",
+      "name": "Telemetry Counters & Token Savings Reconciliation",
+      "status": "PASS",
+      "latency_ms": 40.25,
+      "details": "Docs: 77, Chunks: 794, Avg L1: 176.1 tok, Savings: 93.0%",
+      "extra": {
+        "db_reconciliation": true,
+        "formula_verified": true
+      }
+    },
+    {
+      "suite": "Context Sync",
+      "name": "RBAC: Anonymous Access Blocked",
+      "status": "PASS",
+      "latency_ms": 10.77,
+      "details": "Unauthenticated caller received HTTP 401",
+      "extra": {
+        "status_code": 401
+      }
+    },
+    {
+      "suite": "Context Sync",
+      "name": "RBAC: Student Role Forbidden",
+      "status": "PASS",
+      "latency_ms": 23.18,
+      "details": "Student caller correctly rejected with HTTP 403 Forbidden",
+      "extra": {
+        "status_code": 403
+      }
+    },
+    {
+      "suite": "Context Sync",
+      "name": "RBAC: Admin Role Authorized",
+      "status": "PASS",
+      "latency_ms": 360.76,
+      "details": "Admin caller granted sync execution. Message: 'Context tiers successfully synchronized.'",
+      "extra": {
+        "status_code": 200
+      }
+    },
+    {
+      "suite": "Adaptive Ask",
+      "name": "Overview Query Hits L1 Fast-Path",
+      "status": "PASS",
+      "latency_ms": 6769.1,
+      "details": "Served by: 'tiered_context_l1', Citations: 1, Answer tokens: ~164",
+      "extra": {
+        "served_by": "tiered_context_l1",
+        "citations_count": 1
+      }
+    },
+    {
+      "suite": "Adaptive Ask",
+      "name": "Granular Proof Query Uses Deep Pipeline",
+      "status": "PASS",
+      "latency_ms": 277.22,
+      "details": "Correctly bypassed L1 fast-path. Served by: 'local'",
+      "extra": {
+        "served_by": "local"
+      }
+    },
+    {
+      "suite": "Python SDK",
+      "name": "RagAiClient.get_context_tree()",
+      "status": "PASS",
+      "latency_ms": 33.38,
+      "details": "SDK retrieved context tree. Root: ragai://knowledge",
+      "extra": {
+        "root_uri": "ragai://knowledge"
+      }
+    },
+    {
+      "suite": "Python SDK",
+      "name": "RagAiClient.list_context_dir()",
+      "status": "PASS",
+      "latency_ms": 12.26,
+      "details": "SDK listed directory entries: 4 entries",
+      "extra": {
+        "count": 4
+      }
+    },
+    {
+      "suite": "Python SDK",
+      "name": "RagAiClient.resolve_context()",
+      "status": "PASS",
+      "latency_ms": 20.01,
+      "details": "SDK resolved L1 tier. Tokens: 164",
+      "extra": {
+        "tokens": 164
+      }
+    },
+    {
+      "suite": "Python SDK",
+      "name": "RagAiClient.find_context()",
+      "status": "PASS",
+      "latency_ms": 61.95,
+      "details": "SDK semantic find returned 2 matches",
+      "extra": {
+        "matches": 2
+      }
+    },
+    {
+      "suite": "Python SDK",
+      "name": "RagAiClient.get_context_stats()",
+      "status": "PASS",
+      "latency_ms": 34.88,
+      "details": "SDK telemetry: Docs: 77, Savings: 93.0%",
+      "extra": {
+        "savings": "93.0%"
+      }
+    },
+    {
+      "suite": "Python SDK",
+      "name": "RagAiClient.sync_context_tiers()",
+      "status": "PASS",
+      "latency_ms": 302.06,
+      "details": "SDK administrative sync succeeded: 'Context tiers successfully synchronized.'",
+      "extra": {
+        "message": "Context tiers successfully synchronized."
+      }
+    }
+  ],
+  "latencies_ms": {
+    "tree_unfiltered": 126.79290000232868,
+    "tree_filtered": 10.591600002953783,
+    "ls_root": 10.102800006279722,
+    "ls_dept": 14.555699992342852,
+    "ls_course": 7.222700005513616,
+    "resolve_l0": 16.281400006846525,
+    "resolve_l1": 10.750200002803467,
+    "resolve_l2": 12.937899999087676,
+    "find_academic_syllabi": 14161.774799998966,
+    "find_exam_rules": 75.55169999250211,
+    "find_algorithms": 62.54199999966659,
+    "stats": 40.24899999785703,
+    "sync_admin": 360.7613000058336,
+    "ask_overview_fastpath": 6769.096299991361,
+    "ask_granular_pipeline": 277.2229999973206
+  },
+  "token_economics": {
+    "avg_l0_tokens": 28.0,
+    "avg_l1_tokens": 176.1,
+    "typical_l2_tokens": 2500,
+    "token_savings_percent": "93.0%",
+    "formula_accurate": true
+  },
+  "summary": {
+    "total": 28,
+    "passed": 28,
+    "failed": 0
+  }
+}
