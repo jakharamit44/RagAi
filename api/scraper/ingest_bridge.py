@@ -118,6 +118,10 @@ class ScraperIngestBridge:
                 await session.commit()
                 return {"status": "success", "chunks": 0}
 
+            # Embed chunks using CPU embedder FIRST (offloaded to thread, zero SQLite lock time)
+            texts = [c.get("text", "") for c in unique_chunks]
+            vectors = await asyncio.to_thread(embedder.embed_texts, texts)
+
             chunk_models = []
             for c in unique_chunks:
                 chunk_record = Chunk(
@@ -131,10 +135,6 @@ class ScraperIngestBridge:
 
             session.add_all(chunk_models)
             await session.flush()
-
-            # Embed chunks using CPU embedder (offloaded to worker thread)
-            texts = [c.text for c in chunk_models]
-            vectors = await asyncio.to_thread(embedder.embed_texts, texts)
 
             points_to_upsert = []
             bm25_items = []
@@ -161,16 +161,13 @@ class ScraperIngestBridge:
                 bm25_items.append(payload)
                 chunk.embedding_ref = pid
 
-            await session.commit()
-
-            # Upsert into Qdrant & sync BM25 index (offloaded to thread to avoid blocking loop)
-            await asyncio.to_thread(qdrant_store.upsert_chunks, points_to_upsert)
-            bm25_index.corpus.extend(bm25_items)
-            await asyncio.to_thread(bm25_index.build_index, bm25_index.corpus)
-
             manifest_entry.status = "ingested"
             manifest_entry.title = clean_title
             await session.commit()
+
+            # Upsert into Qdrant (offloaded to thread to avoid blocking loop)
+            await asyncio.to_thread(qdrant_store.upsert_chunks, points_to_upsert)
+            bm25_index.corpus.extend(bm25_items)
 
             logger.info(f"Ingested web page: {clean_title} ({len(chunk_models)} chunks)")
 

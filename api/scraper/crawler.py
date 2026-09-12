@@ -267,6 +267,21 @@ class UniversityWebCrawler:
                     except Exception:
                         pass
 
+                    # Trim working set memory on Windows to release unused physical RAM
+                    try:
+                        import ctypes
+                        ctypes.windll.psapi.EmptyWorkingSet(ctypes.windll.kernel32.GetCurrentProcess())
+                    except Exception:
+                        pass
+
+                    # Refresh BM25 index once every 5 batches
+                    if batch_num % 5 == 0:
+                        try:
+                            from api.rag.bm25_index import bm25_index
+                            bm25_index.reload_from_db()
+                        except Exception:
+                            pass
+
                     # Auto-advance to the next batch
                     next_batch_num = batch_num + 1
                     self.stats["current_batch"] = next_batch_num
@@ -350,6 +365,10 @@ class UniversityWebCrawler:
 
             else:
                 # 2. Process HTML Web Page
+                if UrlNormalizer.is_skippable_url(url):
+                    self.stats["skipped_unchanged"] += 1
+                    return
+
                 cond_headers = await DeltaDetector.get_conditional_headers(url, session)
                 try:
                     resp = await client.get(url, headers=cond_headers)

@@ -18,7 +18,7 @@ DISALLOWED_PATH_PATTERNS = [
     re.compile(r"/logoff", re.I),
     re.compile(r"/login", re.I),
     re.compile(r"/signin", re.I),
-    re.compile(r"\.(?:png|jpg|jpeg|gif|svg|ico|css|js|woff|woff2|ttf|eot|mp4|webm|avi|mp3)$", re.I),
+    re.compile(r"\.(?:png|jpg|jpeg|gif|svg|ico|bmp|tif|tiff|jfif|webp|psd|ai|eps|raw|cr2|nef|css|js|woff|woff2|ttf|eot|mp4|webm|avi|mp3|wav|ogg|rar|zip|7z|tar|gz|bz2|xz|iso|bin|exe|msi|dmg|apk|dat|xlsm|xltx|xltm|dotx|dotm|potx|potm)(?:$|[?#])", re.I),
 ]
 
 class UrlNormalizer:
@@ -249,9 +249,10 @@ class UrlNormalizer:
         Checks if the URL is an asset or sensitive URL (images, styles, logout).
         """
         try:
-            path = urlparse(url).path
+            parsed = urlparse(url)
+            path = parsed.path
             for pat in DISALLOWED_PATH_PATTERNS:
-                if pat.search(path):
+                if pat.search(path) or pat.search(url):
                     return True
             return False
         except Exception:

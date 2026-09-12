@@ -7,6 +7,8 @@ from rank_bm25 import BM25Okapi
 
 logger = logging.getLogger(__name__)
 
+WORD_RE = re.compile(r"\W+")
+
 class BM25Index:
     """
     Sparse BM25 Okapi index for exact keyword search across university documents.
@@ -19,7 +21,7 @@ class BM25Index:
         self.tokenized_corpus: List[List[str]] = []
         self.bm25: Optional[BM25Okapi] = None
         self._valid_doc_ids: set = set()
-        self._load_lock = threading.Lock()
+        self._load_lock = threading.RLock()
 
     @property
     def valid_doc_ids(self) -> set:
@@ -29,7 +31,7 @@ class BM25Index:
 
     @staticmethod
     def tokenize(text: str) -> List[str]:
-        return [w for w in re.split(r"\W+", text.lower()) if len(w) > 1]
+        return [w for w in WORD_RE.split(text.lower()) if len(w) > 1]
 
     def reload_from_db(self):
         """Forces complete reload of BM25 corpus from SQLite."""
@@ -59,8 +61,13 @@ class BM25Index:
                 conn.execute("PRAGMA synchronous=NORMAL;")
                 cur = conn.cursor()
                 cur.execute("""
-                    SELECT c.id, c.document_id, c.page_number, c.section, c.text,
-                           d.title, d.department, d.semester, d.course
+                    SELECT c.id, c.document_id, c.page_number,
+                           SUBSTR(COALESCE(c.section, ''), 1, 300),
+                           SUBSTR(COALESCE(c.text, ''), 1, 1500),
+                           SUBSTR(COALESCE(d.title, ''), 1, 300),
+                           COALESCE(d.department, ''),
+                           COALESCE(d.semester, ''),
+                           COALESCE(d.course, '')
                     FROM chunks c
                     JOIN documents d ON c.document_id = d.id
                 """)
@@ -73,13 +80,14 @@ class BM25Index:
                         "chunk_id": str(r[0]),
                         "document_id": str(r[1]),
                         "page_number": r[2],
-                        "section": r[3],
-                        "text": r[4],
-                        "title": r[5],
-                        "department": r[6],
-                        "semester": r[7],
-                        "course": r[8],
+                        "section": r[3] or "",
+                        "text": r[4] or "",
+                        "title": r[5] or "",
+                        "department": r[6] or "",
+                        "semester": r[7] or "",
+                        "course": r[8] or "",
                     })
+                del rows
                 if chunks:
                     self.build_index(chunks)
             except Exception as e:
@@ -88,19 +96,31 @@ class BM25Index:
     def build_index(self, chunks: List[Dict[str, Any]]):
         """Build BM25 index from list of chunk payloads, including title & section for rich lexical matching."""
         with self._load_lock:
-            self.corpus = list(chunks)
-            self._valid_doc_ids = {d.get("document_id") for d in chunks if d.get("document_id")}
-            self.tokenized_corpus = [
+            # Create lightweight memory items (cap text to 1500 chars to prevent heap ballooning on massive gazettes)
+            lightweight = []
+            for c in chunks:
+                item = dict(c)
+                raw_text = item.get("text") or ""
+                if len(raw_text) > 1500:
+                    item["text"] = raw_text[:1500]
+                lightweight.append(item)
+
+            self.corpus = lightweight
+            self._valid_doc_ids = {d.get("document_id") for d in lightweight if d.get("document_id")}
+            tokenized = [
                 self.tokenize(f"{c.get('title', '')} {c.get('section', '')} {c.get('text', '')}")
-                for c in chunks
+                for c in lightweight
             ]
-            if self.tokenized_corpus:
-                self.bm25 = BM25Okapi(self.tokenized_corpus)
+            if tokenized:
+                self.bm25 = BM25Okapi(tokenized)
+                del tokenized
                 self._last_chunk_count = len(self.corpus)
                 logger.info(f"Built BM25 index over {len(self.corpus)} chunks.")
             else:
                 self.bm25 = None
                 self._last_chunk_count = 0
+            import gc
+            gc.collect()
 
     def search_sparse(
         self,

@@ -28,10 +28,30 @@ class SemanticChunker:
             section = page.get("section")
             text = page.get("text", "")
 
-            # Split paragraphs
-            paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-            current_chunk = ""
+            # Split paragraphs by double newlines
+            raw_paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
+            paragraphs = []
+            for p in raw_paragraphs:
+                if len(p) > self.target_chars:
+                    # Sub-split long blocks by single newline
+                    sub_lines = [l.strip() for l in p.split("\n") if l.strip()]
+                    cur_block = ""
+                    for sl in sub_lines:
+                        if len(cur_block) + len(sl) <= self.target_chars:
+                            cur_block += ("\n" if cur_block else "") + sl
+                        else:
+                            if cur_block:
+                                paragraphs.append(cur_block)
+                            while len(sl) > self.target_chars:
+                                paragraphs.append(sl[:self.target_chars])
+                                sl = sl[self.target_chars - self.overlap_chars:]
+                            cur_block = sl
+                    if cur_block:
+                        paragraphs.append(cur_block)
+                else:
+                    paragraphs.append(p)
 
+            current_chunk = ""
             for p in paragraphs:
                 if len(current_chunk) + len(p) <= self.target_chars:
                     current_chunk += ("\n\n" if current_chunk else "") + p

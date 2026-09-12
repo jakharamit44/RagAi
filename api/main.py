@@ -42,7 +42,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not auto-initialize CUDA runtime: {e}")
 
+    print("LIFESPAN: 1. init_db starting...", flush=True)
     await init_db()
+    print("LIFESPAN: 1. init_db done!", flush=True)
 
     # Seed default MDU WebScrapeJob if none exists
     try:
@@ -70,7 +72,6 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Default WebScrapeJob init note: {e}")
 
     # Load dynamic system settings configured from Admin Portal (keeps .env untouched)
-
     try:
         from db.models import SystemSetting
         async with async_session_factory() as session:
@@ -85,26 +86,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not load dynamic system settings from database: {e}")
 
-    # Preload BM25 index from database
+    # Preload BM25 index from database (fast raw SQLite, zero ORM overhead)
     try:
-        async with async_session_factory() as session:
-            stmt = select(Chunk, Document).join(Document, Chunk.document_id == Document.id)
-            rows = (await session.execute(stmt)).all()
-            corpus = []
-            for c, d in rows:
-                corpus.append({
-                    "chunk_id": str(c.id),
-                    "document_id": str(d.id),
-                    "title": d.title,
-                    "department": d.department,
-                    "semester": d.semester,
-                    "course": d.course,
-                    "page_number": c.page_number,
-                    "section": c.section,
-                    "text": c.text,
-                })
-            bm25_index.build_index(corpus)
-            logger.info(f"Loaded {len(corpus)} document chunks into BM25 index on startup.")
+        print("LIFESPAN: 2. BM25 ensure_loaded starting...", flush=True)
+        bm25_index.ensure_loaded()
+        print(f"LIFESPAN: 2. BM25 loaded with {len(bm25_index.corpus)} chunks!", flush=True)
+        logger.info(f"Loaded {len(bm25_index.corpus)} document chunks into BM25 index on startup.")
     except Exception as e:
         logger.warning(f"Could not preload BM25 index on startup: {e}")
 
@@ -113,44 +100,25 @@ async def lifespan(app: FastAPI):
         from api.rag.embedder import embedder
         from api.rag.reranker import reranker
         from api.rag.chat_generator import chat_generator
+        print("LIFESPAN: 3. embedder warmup...", flush=True)
         embedder.warmup()
+        print("LIFESPAN: 4. reranker warmup...", flush=True)
         reranker.warmup()
+        print("LIFESPAN: 5. chat_generator warmup...", flush=True)
         chat_generator.warmup()
+        print("LIFESPAN: Models warmup complete!", flush=True)
         logger.info("Local Embedder, Reranker, and Chat Generator pre-warmed and ready on GPU.")
     except Exception as e:
         logger.warning(f"Model pre-warm note: {e}")
 
-    # Purge residual non-academic points from Qdrant vector storage
-    try:
-        from api.rag.qdrant_store import qdrant_store
-        from qdrant_client.models import Filter, FieldCondition, MatchText
-        qdrant_store.client.delete(
-            collection_name=qdrant_store.collection_name,
-            points_selector=Filter(
-                should=[
-                    FieldCondition(key="title", match=MatchText(text="Enterprise_RAG")),
-                    FieldCondition(key="title", match=MatchText(text="test_failed")),
-                ]
-            ),
-            wait=True
-        )
-        logger.info("Synchronized Qdrant collection: purged residual non-academic vectors.")
-    except Exception as e:
-        logger.debug(f"Qdrant startup sync note: {e}")
-
     # Start automated scraper background scheduler
     try:
+        print("LIFESPAN: 6. scraper_scheduler.start()...", flush=True)
         scraper_scheduler.start()
     except Exception as e:
         logger.warning(f"Could not start scraper scheduler: {e}")
 
-    # Synchronize OpenViking-style Tiered Context Filesystem
-    try:
-        asyncio.create_task(tiered_engine.sync_database_tiers())
-        logger.info("Triggered asynchronous initialization of OpenViking Tiered Context Filesystem.")
-    except Exception as e:
-        logger.warning(f"Could not synchronize tiered context on startup: {e}")
-
+    print("LIFESPAN: 7. All startup complete! Yielding app...", flush=True)
     logger.info("University RAG API is ready to receive queries.")
     yield
     logger.info("Shutting down University RAG API Service...")

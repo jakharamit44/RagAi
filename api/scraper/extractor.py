@@ -30,14 +30,26 @@ class PageExtractor:
         Extracts clean text/markdown, metadata, and banner OCR announcements from raw HTML.
         Handles BOM, UTF-8, fallback encodings, and visual announcements.
         """
+        # Guard against binary archives, executables, or oversized payloads being treated as HTML
+        if len(html_bytes) > 5 * 1024 * 1024:
+            logger.warning(f"Skipping oversized payload ({len(html_bytes)/(1024*1024):.1f} MB) for HTML parsing: {page_url}")
+            return {"title": "Oversized Asset", "text": "", "banner_announcements": []}
+
+        # Check binary magic signatures
+        binary_sigs = (b"Rar!", b"PK\x03\x04", b"7z\xbc\xaf\x27\x1c", b"\x1f\x8b", b"BZh", b"\xfd7zXZ", b"MZ", b"%PDF")
+        if any(html_bytes.startswith(sig) for sig in binary_sigs) or b"\x00" in html_bytes[:1024]:
+            logger.info(f"Skipping binary non-HTML payload detected at {page_url}")
+            return {"title": "Binary Asset", "text": "", "banner_announcements": []}
+
         # 1. Decode HTML handling possible UTF-8 BOM
         try:
             html_text = html_bytes.decode("utf-8-sig")
         except UnicodeDecodeError:
             try:
-                html_text = html_bytes.decode("latin-1")
-            except Exception:
+                # Strictly try utf-8 errors=replace rather than indiscriminate latin-1
                 html_text = html_bytes.decode("utf-8", errors="replace")
+            except Exception:
+                return {"title": "Unreadable Content", "text": "", "banner_announcements": []}
 
         # 2. Extract title
         title = ""
