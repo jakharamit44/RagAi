@@ -171,10 +171,10 @@ class ScraperIngestBridge:
 
             logger.info(f"Ingested web page: {clean_title} ({len(chunk_models)} chunks)")
 
-            # Synchronize OpenViking tiered context
+            # Synchronize OpenViking tiered context (debounced)
             try:
                 from api.context.tiered_engine import tiered_engine
-                asyncio.create_task(tiered_engine.sync_database_tiers())
+                tiered_engine.trigger_debounced_sync(delay=3.0)
             except Exception as e:
                 logger.warning(f"Could not trigger tiered engine sync after web ingestion: {e}")
 

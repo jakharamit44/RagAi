@@ -1,5 +1,6 @@
 import re
 import logging
+import urllib.parse
 from typing import Dict, Any, List, Tuple, Optional, Set
 from bs4 import BeautifulSoup
 import trafilatura
@@ -51,7 +52,7 @@ class PageExtractor:
             except Exception:
                 return {"title": "Unreadable Content", "text": "", "banner_announcements": []}
 
-        # 2. Extract title
+        # 2. Extract and refine title
         title = ""
         soup = None
         try:
@@ -93,6 +94,183 @@ class PageExtractor:
                 clean_markdown = main_elem.get_text(separator="\n", strip=True)
             else:
                 clean_markdown = soup.get_text(separator="\n", strip=True)
+
+        # 4.5. ASP.NET University Portal & Structured Container Enrichment
+        # Trafilatura frequently drops ASP.NET sidebar cards, officer profile blocks (#vcCont),
+        # tables, and dynamic form panels. We inspect and recover these vital academic details.
+        if soup is not None:
+            recovered_blocks = []
+            
+            # (a) Refine generic "M.D University" titles using breadcrumbs, ASP.NET headings, or specific routes
+            lower_title = title.lower().strip()
+            if not title or lower_title in ["m.d university", "mdu rohtak", "maharshi dayanand university", ""]:
+                # Check department header first (DeptOfficeHeader_lblDeptName, etc.)
+                dept_hdr = soup.find(id=re.compile(r"lblDeptName|lbldeptname", re.I))
+                dept_name_str = dept_hdr.get_text(strip=True) if dept_hdr else ""
+
+                # Check breadcrumbs next - standard across ASP.NET and modern CMS
+                breadcrumb_elem = soup.find(class_=re.compile(r"breadcrumb|bread-crumb|crumbs", re.I)) or soup.find(id=re.compile(r"breadcrumb|crumbs", re.I))
+                if breadcrumb_elem:
+                    crumbs = [c.get_text(strip=True) for c in breadcrumb_elem.find_all(["li", "a", "span"]) if c.get_text(strip=True)]
+                    crumbs = [c for c in crumbs if c not in [">", "/", "|", "»", "\\", "Home", "home"] and len(c) > 1]
+                    if crumbs:
+                        title = " - ".join(crumbs[-2:]) + " | MDU Rohtak"
+
+                if not title or title.lower().strip() in ["m.d university", "mdu rohtak"]:
+                    if "officers.aspx" in page_url.lower():
+                        if "oid=1" in page_url.lower():
+                            title = "Vice-Chancellor Office - Prof. Milap Punia | MDU Rohtak"
+                        elif "oid=3" in page_url.lower():
+                            title = "Chancellor Office - Prof. Ashim Kumar Ghosh | MDU Rohtak"
+                        elif "oid=4" in page_url.lower():
+                            title = "Registrar Office - Prof. Sandeep Bansal | MDU Rohtak"
+                        elif "oid=5" in page_url.lower():
+                            title = "Dean Academic Affairs | MDU Rohtak"
+                        else:
+                            title = "University Officers & Deans | MDU Rohtak"
+                    elif "dept=43" in page_url.lower():
+                        title = "Centre for Distance and Online Education (CDOE / DDE) | MDU Rohtak"
+                    elif "dept=44" in page_url.lower() or (dept_name_str and "computer centre" in dept_name_str.lower()):
+                        title = "University Computer Centre (UCC) - Prof. Yudhvir Singh | MDU Rohtak"
+                    elif dept_name_str:
+                        title = f"{dept_name_str} | MDU Rohtak"
+                    elif "admission" in page_url.lower():
+                        title = "MDU Admissions Portal & Academic Programs"
+                    else:
+                        officer_name_elem = soup.find(id=re.compile(r"lblpaname|lblName", re.I))
+                        officer_title_elem = soup.find(id=re.compile(r"lblOffice|lblDesig", re.I))
+                        if officer_name_elem and officer_name_elem.get_text(strip=True):
+                            name_str = officer_name_elem.get_text(strip=True)
+                            desig_str = officer_title_elem.get_text(strip=True) if officer_title_elem else "Officer"
+                            title = f"{desig_str} - {name_str} | MDU Rohtak"
+                        else:
+                            h1 = soup.find("h1") or soup.find("h2") or soup.find(id=re.compile(r"lblHeading|lblTitle|PageTitle", re.I))
+                            if h1 and h1.get_text(strip=True):
+                                title = f"{h1.get_text(strip=True)} | MDU Rohtak"
+
+            # (b) Helper for markdown table conversion
+            def _table_to_markdown(tbl) -> str:
+                rows = []
+                for tr in tbl.find_all("tr"):
+                    cells = [td.get_text(separator=" ", strip=True).replace("|", "\\|") for td in tr.find_all(["th", "td"])]
+                    if any(cells):
+                        rows.append(cells)
+                if not rows:
+                    return ""
+                max_cols = max(len(r) for r in rows)
+                if max_cols == 0:
+                    return ""
+                for r in rows:
+                    while len(r) < max_cols:
+                        r.append("")
+                header = rows[0]
+                lines = ["| " + " | ".join(header) + " |", "| " + " | ".join(["---"] * max_cols) + " |"]
+                for r in rows[1:]:
+                    lines.append("| " + " | ".join(r) + " |")
+                return "\n".join(lines)
+
+            # (c) Extract officer profile container (#vcCont)
+            vc_cont = soup.find(id="vcCont")
+            if vc_cont:
+                # Capture all tables in vcCont
+                for tbl in vc_cont.find_all("table"):
+                    t_md = _table_to_markdown(tbl)
+                    if t_md and t_md[:40] not in (clean_markdown or ""):
+                        recovered_blocks.append(f"\n{t_md}\n")
+                vc_raw = vc_cont.get_text(separator="\n", strip=True)
+                if vc_raw:
+                    lines = [ln.strip() for ln in vc_raw.split("\n") if ln.strip()]
+                    clean_vc_lines = "\n".join(lines)
+                    if clean_vc_lines and clean_vc_lines[:100] not in (clean_markdown or ""):
+                        recovered_blocks.append(f"\n### University Leadership & Office Directory\n{clean_vc_lines}\n")
+
+            # (c2) Extract Telerik / ASP.NET Multi-Tab Views (RadMultiPage) & Staff/Director Profiles
+            multipage = soup.find(id=re.compile(r"RadMultiPage|ctl00.*MultiPage", re.I)) or soup.find(class_=re.compile(r"RadMultiPage", re.I))
+            if multipage:
+                tab_blocks = []
+                for view in multipage.find_all(class_=re.compile(r"rmpView", re.I)):
+                    view_id = view.get("id", "")
+                    clean_name = re.sub(r"^.*?_", "", view_id)
+                    clean_name = re.sub(r"([a-z])([A-Z])", r"\1 \2", clean_name).strip().title()
+
+                    cards = []
+                    for p_elem in view.find_all(id=re.compile(r"lblpaname|lblName|lblOfficer|lblDesig", re.I)):
+                        p_name = re.sub(r"[\ue000-\uf8ff]", "", p_elem.get_text(strip=True))
+                        if not p_name or len(p_name) < 2:
+                            continue
+                        parent = p_elem.find_parent(class_=re.compile(r"col-|row|card|box|panel|teacher", re.I)) or p_elem.parent
+                        p_lines = [re.sub(r"[\ue000-\uf8ff]", "", ln).strip() for ln in parent.get_text(separator="\n", strip=True).split("\n") if len(ln.strip()) > 1]
+
+                        biodata_a = parent.find("a", href=re.compile(r"biodata|profile|resume", re.I))
+                        biodata_url = urllib.parse.urljoin(page_url, biodata_a["href"]) if biodata_a and biodata_a.get("href") else ""
+
+                        card_str = f"**{p_name}**\n" + "\n".join([f"- {ln}" for ln in p_lines if ln != p_name and len(ln) > 1])
+                        if biodata_url:
+                            card_str += f"\n- Bio-Data: {biodata_url}"
+                        if card_str not in cards:
+                            cards.append(card_str)
+
+                    view_copy = BeautifulSoup(str(view), "html.parser")
+                    for el in view_copy(["script", "style", "table"]):
+                        el.decompose()
+                    view_raw = re.sub(r"[\ue000-\uf8ff]", "", view_copy.get_text(separator="\n", strip=True))
+                    view_lines = [ln.strip() for ln in view_raw.split("\n") if len(ln.strip()) > 1]
+                    view_summary = "\n".join(view_lines)
+
+                    tab_parts = [f"### Tab: {clean_name}"]
+                    if cards:
+                        tab_parts.append("#### Department Officers, Faculty & Staff Profiles\n" + "\n\n".join(cards))
+                    if view_summary and len(view_summary) > 40:
+                        tab_parts.append("#### Details & Academic Information\n" + view_summary[:2000])
+
+                    tab_blocks.append("\n\n".join(tab_parts))
+
+                if tab_blocks:
+                    joined_tabs = "\n\n".join(tab_blocks)
+                    recovered_blocks.append(f"\n## Department Multi-Tab Sections & Directory\n{joined_tabs}\n")
+
+            # (d) Extract Department / CDOE panels (e.g. DepartmentAboutUs, Home overview)
+            dept_panel = soup.find(id=re.compile(r"DepartmentAboutUs|lblAboutDept|DeptMain", re.I))
+            if dept_panel:
+                d_raw = dept_panel.get_text(separator="\n", strip=True)
+                if len(d_raw) > 80 and d_raw[:80] not in (clean_markdown or ""):
+                    recovered_blocks.append(f"\n### Department Overview & Academic Programmes\n{d_raw}\n")
+
+            # (e) Universal Table Extraction: Capture ANY table across MDU portals (schedules, fee matrices, seat intake, cutoffs, syllabus lists)
+            seen_tables = set()
+            for tbl in soup.find_all("table"):
+                if vc_cont and tbl.find_parent(id="vcCont"):
+                    continue
+                rows = tbl.find_all("tr")
+                if len(rows) < 2:
+                    continue
+                t_md = _table_to_markdown(tbl)
+                if t_md and len(t_md.strip()) > 20 and t_md[:40] not in seen_tables:
+                    seen_tables.add(t_md[:40])
+                    # Check if table headers/first rows are already preserved in markdown
+                    check_snip = rows[0].get_text(separator=" ", strip=True)[:35]
+                    if not check_snip or check_snip not in (clean_markdown or "") or "|" not in (clean_markdown or ""):
+                        recovered_blocks.append(f"\n### Official Schedules, Programmes & Table Data\n{t_md}\n")
+
+            # (f) Official Portal Links & Document Resources Harvesting
+            official_links = []
+            for a in soup.find_all("a", href=True):
+                href = a["href"].strip()
+                text = a.get_text(strip=True)
+                if not text or len(text) < 3:
+                    continue
+                # Target key portal destinations and academic documents
+                if any(k in href.lower() for k in ["samarth.edu.in", "admission", "student.mdu", "result", "exam", ".pdf", ".docx", ".xlsx"]):
+                    full_url = urllib.parse.urljoin(page_url, href)
+                    if full_url.startswith("http") and (text, full_url) not in official_links:
+                        official_links.append((text, full_url))
+
+            if official_links:
+                links_md = "\n".join([f"- [{lbl}]({url})" for lbl, url in official_links[:25]])
+                recovered_blocks.append(f"\n### Official Portal Links & Documents\n{links_md}\n")
+
+            if recovered_blocks:
+                clean_markdown = ((clean_markdown or "").strip() + "\n\n" + "\n".join(recovered_blocks)).strip()
 
         if not title:
             # Fallback title from first H1 or URL

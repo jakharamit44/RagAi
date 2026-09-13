@@ -182,12 +182,43 @@ QUERY_TYPO_CORRECTIONS = [
     (r"\bacadamics?\b", "academic"),
 ]
 
+# Official university acronym and entity expansions for hybrid BM25 and dense retrieval
+ACRONYM_EXPANSIONS = [
+    # Vice Chancellor
+    (r"\bvc\b", "vice chancellor vc"),
+    (r"\bvice\s*chancelor\b", "vice chancellor"),
+    # Distance Education
+    (r"\bdde\b", "dde distance education cdoe"),
+    (r"\bcdoe\b", "cdoe distance education dde"),
+    # Engineering & Technology Institute
+    (r"\buiet\b", "uiet university institute of engineering technology"),
+    # Teaching Departments
+    (r"\butd\b", "utd university teaching departments"),
+    # Dean Students' Welfare
+    (r"\bdsw\b", "dsw dean students welfare"),
+    # Controller of Examinations
+    (r"\bcoe\b", "coe controller of examinations"),
+    # University Computer Centre
+    (r"\bucc\b", "ucc university computer centre"),
+    # Internal Quality Assurance Cell
+    (r"\biqac\b", "iqac internal quality assurance cell"),
+    # Career Counselling and Placement Cell
+    (r"\bccpc\b", "ccpc career counselling placement cell"),
+]
+
 def normalize_query(query: str) -> str:
-    """Correct frequent student typos in queries before vector and keyword retrieval."""
+    """
+    Corrects frequent student typos and expands university acronyms (VC, DDE, CDOE, UIET, UTD)
+    to maximize BM25 keyword recall and dense semantic alignment.
+    """
     if not query or not isinstance(query, str):
         return query
     normalized = query
     for pattern, replacement in QUERY_TYPO_CORRECTIONS:
         normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+    for pattern, replacement in ACRONYM_EXPANSIONS:
+        normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+    # Deduplicate multiple whitespaces
+    normalized = re.sub(r"\s+", " ", normalized).strip()
     return normalized
 

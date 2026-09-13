@@ -6,6 +6,7 @@ engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
     pool_pre_ping=True,
+    connect_args={"timeout": 60} if "sqlite" in settings.DATABASE_URL else {},
 )
 
 if "sqlite" in settings.DATABASE_URL:

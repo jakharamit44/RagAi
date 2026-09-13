@@ -54,6 +54,7 @@ class UpdateJobRequest(BaseModel):
 class CrawlSingleUrlRequest(BaseModel):
     url: str = Field(..., description="Target web page or PDF document URL")
     auto_ingest: bool = Field(default=True, description="Embed and index into Qdrant & BM25")
+    force: bool = Field(default=False, description="Force re-extraction and indexing even if conditional headers or hash match")
 
 # ---------------------------------------------------------
 # Endpoints
@@ -214,13 +215,21 @@ async def stop_crawl():
 @router.get("/status")
 async def get_crawler_status():
     """Get live crawler status, progress metrics, and recent activity logs."""
+    logs = []
+    for _ in range(3):
+        try:
+            logs = list(crawler.activity_logs)
+            break
+        except Exception:
+            pass
     return {
         "is_running": crawler.is_running,
         "current_job_id": crawler.current_job_id,
         "current_url": crawler.current_url,
-        "stats": crawler.stats,
-        "activity_logs": list(crawler.activity_logs),
+        "stats": dict(crawler.stats) if crawler.stats else {},
+        "activity_logs": logs,
     }
+
 
 
 @router.get("/manifest")
@@ -349,7 +358,7 @@ async def crawl_single_resource(payload: CrawlSingleUrlRequest):
 
         else:
             # Web Page with per-hop redirect safety and TLS verification
-            cond_headers = await DeltaDetector.get_conditional_headers(url, session)
+            cond_headers = {} if payload.force else await DeltaDetector.get_conditional_headers(url, session)
             async with httpx.AsyncClient(verify=True, follow_redirects=False) as client:
                 curr_url = url
                 resp = None
@@ -372,7 +381,7 @@ async def crawl_single_resource(payload: CrawlSingleUrlRequest):
                 else:
                     raise HTTPException(status_code=502, detail="Exceeded maximum redirect hops")
 
-            if resp.status_code == 304:
+            if resp.status_code == 304 and not payload.force:
                 return {"status": "skipped", "message": "Web page is unchanged on university server (HTTP 304)."}
 
             if resp.status_code != 200:
@@ -396,6 +405,9 @@ async def crawl_single_resource(payload: CrawlSingleUrlRequest):
                 extracted_text=markdown_text,
                 session=session
             )
+
+            if payload.force:
+                should_ingest = True
 
             if manifest_entry:
                 manifest_entry.title = title

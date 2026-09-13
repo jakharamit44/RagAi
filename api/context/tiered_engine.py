@@ -53,6 +53,7 @@ class TieredContextEngine:
         self._cache_ttl: float = 300.0  # 5 minutes
         self._node_embeddings: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
+        self._sync_task: Optional[asyncio.Task] = None
 
     def invalidate_cache(self):
         """Invalidates in-memory tree cache and node vector index."""
@@ -192,6 +193,21 @@ class TieredContextEngine:
             "token_count_l1": tok_l1
         }
 
+
+    def trigger_debounced_sync(self, delay: float = 3.0):
+        """
+        Schedule a background synchronization of context tiers, debounced to avoid
+        concurrent SQLite lock thrashing when multiple pages or chunks are ingested.
+        """
+        if self._sync_task and not self._sync_task.done():
+            return
+        async def _run():
+            try:
+                await asyncio.sleep(delay)
+                await self.sync_database_tiers()
+            except Exception as e:
+                logger.warning(f"Debounced tiered context sync encountered error: {e}")
+        self._sync_task = asyncio.create_task(_run())
 
     async def sync_database_tiers(self):
         """

@@ -26,6 +26,7 @@ ROLE_HIERARCHY = {
 
 security_bearer = HTTPBearer(auto_error=False)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+_JWT_USER_CACHE: Dict[str, User] = {}
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """Create signed JWT access token (Phase 11 & Table 27)."""
@@ -202,19 +203,38 @@ async def get_current_user(
                 detail={"error": {"code": "unauthorized", "message": "Invalid token claims"}}
             )
 
-        async with async_session_factory() as session:
-            stmt = select(User).where(User.external_id == external_id)
-            user = (await session.execute(stmt)).scalar_one_or_none()
-            if not user:
-                user = User(
-                    external_id=external_id,
-                    role=payload.get("role", "student"),
-                    department=payload.get("department"),
-                )
-                session.add(user)
-                await session.commit()
-                await session.refresh(user)
-        return user
+        # Fast in-memory cache lookup to avoid SQLite lock contention during active ingestion
+        if external_id in _JWT_USER_CACHE:
+            cached = _JWT_USER_CACHE[external_id]
+            if cached.role == payload.get("role", "student"):
+                return cached
+
+        try:
+            async with async_session_factory() as session:
+                stmt = select(User).where(User.external_id == external_id)
+                user = (await session.execute(stmt)).scalar_one_or_none()
+                if not user:
+                    user = User(
+                        external_id=external_id,
+                        role=payload.get("role", "student"),
+                        department=payload.get("department"),
+                    )
+                    session.add(user)
+                    await session.commit()
+                    await session.refresh(user)
+                _JWT_USER_CACHE[external_id] = user
+                return user
+        except Exception as e:
+            # Fallback for transient SQLite lock contention: construct valid User from cryptographically signed JWT claims
+            logger.warning(f"Database contention during auth lookup for {external_id}, using verified JWT claims: {e}")
+            fallback_user = User(
+                external_id=external_id,
+                role=payload.get("role", "student"),
+                department=payload.get("department"),
+            )
+            _JWT_USER_CACHE[external_id] = fallback_user
+            return fallback_user
+
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
