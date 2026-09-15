@@ -18,6 +18,8 @@ DISALLOWED_PATH_PATTERNS = [
     re.compile(r"/logoff", re.I),
     re.compile(r"/login", re.I),
     re.compile(r"/signin", re.I),
+    re.compile(r"gazette.*(?:\.txt|\.pdf|\.csv)(?:$|[?#])", re.I),
+    re.compile(r"\.(?:txt|csv|log)(?:$|[?#])", re.I),
     re.compile(r"\.(?:png|jpg|jpeg|gif|svg|ico|bmp|tif|tiff|jfif|webp|psd|ai|eps|raw|cr2|nef|css|js|woff|woff2|ttf|eot|mp4|webm|avi|mp3|wav|ogg|rar|zip|7z|tar|gz|bz2|xz|iso|bin|exe|msi|dmg|apk|dat|xlsm|xltx|xltm|dotx|dotm|potx|potm)(?:$|[?#])", re.I),
 ]
 

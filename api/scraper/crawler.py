@@ -311,26 +311,28 @@ class UniversityWebCrawler:
             self.log_activity(f"Blocked unsafe/unauthorized URL {url}: {reason}", level="warning")
             return
 
-        async with async_session_factory() as session:
-            # Check if this is a document (.pdf, .docx) or a web page
-            if UrlNormalizer.is_document_url(url):
-                # 1. Process Document
+        # Check if this is a document (.pdf, .docx) or a web page
+        if UrlNormalizer.is_document_url(url):
+            # 1. Process Document
+            async with async_session_factory() as session:
                 cond_headers = await DeltaDetector.get_conditional_headers(url, session)
-                success, status_code, local_path, content_hash, resp_headers = await DocumentDownloader.download_file(
-                    client, url, conditional_headers=cond_headers
-                )
 
-                if status_code == 304:
-                    self.stats["skipped_unchanged"] += 1
-                    self.log_activity(f"⚡ [304 Unchanged] Document: {url.split('/')[-1]}")
-                    if local_path:
-                        StorageCleaner.cleanup_file(local_path)
-                    return
+            success, status_code, local_path, content_hash, resp_headers = await DocumentDownloader.download_file(
+                client, url, conditional_headers=cond_headers
+            )
 
-                if not success or not local_path:
-                    self.stats["errors"] += 1
-                    return
+            if status_code == 304:
+                self.stats["skipped_unchanged"] += 1
+                self.log_activity(f"⚡ [304 Unchanged] Document: {url.split('/')[-1]}")
+                if local_path:
+                    StorageCleaner.cleanup_file(local_path)
+                return
 
+            if not success or not local_path:
+                self.stats["errors"] += 1
+                return
+
+            async with async_session_factory() as session:
                 should_ingest, reason, manifest_entry = await DeltaDetector.evaluate_change(
                     url=url,
                     http_status=status_code,
@@ -363,51 +365,54 @@ class UniversityWebCrawler:
                     if local_path:
                         StorageCleaner.cleanup_file(local_path)
 
-            else:
-                # 2. Process HTML Web Page
-                if UrlNormalizer.is_skippable_url(url):
-                    self.stats["skipped_unchanged"] += 1
-                    return
+        else:
+            # 2. Process HTML Web Page
+            if UrlNormalizer.is_skippable_url(url):
+                self.stats["skipped_unchanged"] += 1
+                return
 
+            async with async_session_factory() as session:
                 cond_headers = await DeltaDetector.get_conditional_headers(url, session)
-                try:
-                    resp = await client.get(url, headers=cond_headers)
-                except Exception as net_err:
-                    self.stats["errors"] += 1
-                    self.log_activity(f"HTTP GET failed for {url}: {net_err}", level="error")
-                    return
 
-                # Re-validate final redirected URL against SSRF
-                is_safe_target, target_reason = UrlNormalizer.is_safe_url(str(resp.url), allowed_domains)
-                if not is_safe_target:
-                    self.stats["errors"] += 1
-                    self.log_activity(f"Redirected to unsafe URL {resp.url}: {target_reason}", level="warning")
-                    return
+            try:
+                resp = await client.get(url, headers=cond_headers)
+            except Exception as net_err:
+                self.stats["errors"] += 1
+                self.log_activity(f"HTTP GET failed for {url}: {net_err}", level="error")
+                return
 
-                if resp.status_code == 304:
-                    self.stats["skipped_unchanged"] += 1
-                    self.log_activity(f"⚡ [304 Unchanged] Web page: {url}")
-                    return
+            # Re-validate final redirected URL against SSRF
+            is_safe_target, target_reason = UrlNormalizer.is_safe_url(str(resp.url), allowed_domains)
+            if not is_safe_target:
+                self.stats["errors"] += 1
+                self.log_activity(f"Redirected to unsafe URL {resp.url}: {target_reason}", level="warning")
+                return
 
-                if resp.status_code != 200:
-                    self.stats["errors"] += 1
-                    self.log_activity(f"HTTP {resp.status_code} for {url}", level="warning")
-                    return
+            if resp.status_code == 304:
+                self.stats["skipped_unchanged"] += 1
+                self.log_activity(f"⚡ [304 Unchanged] Web page: {url}")
+                return
 
-                # Content extraction (including visual banner announcement OCR)
-                extracted = await PageExtractor.extract_html_content(
-                    resp.content,
-                    page_url=url,
-                    allowed_domains=allowed_domains,
-                    ocr_banners=True,
-                    client=client
-                )
-                title = extracted.get("title", "University Web Page")
-                markdown_text = extracted.get("text", "")
-                banners = extracted.get("banner_announcements", [])
-                if banners:
-                    self.log_activity(f"🖼️ [Banner OCR] Extracted {len(banners)} visual announcements from {title[:30]}")
+            if resp.status_code != 200:
+                self.stats["errors"] += 1
+                self.log_activity(f"HTTP {resp.status_code} for {url}", level="warning")
+                return
 
+            # Content extraction (including visual banner announcement OCR)
+            extracted = await PageExtractor.extract_html_content(
+                resp.content,
+                page_url=url,
+                allowed_domains=allowed_domains,
+                ocr_banners=True,
+                client=client
+            )
+            title = extracted.get("title", "University Web Page")
+            markdown_text = extracted.get("text", "")
+            banners = extracted.get("banner_announcements", [])
+            if banners:
+                self.log_activity(f"🖼️ [Banner OCR] Extracted {len(banners)} visual announcements from {title[:30]}")
+
+            async with async_session_factory() as session:
                 should_ingest, reason, manifest_entry = await DeltaDetector.evaluate_change(
                     url=url,
                     http_status=resp.status_code,
@@ -438,17 +443,17 @@ class UniversityWebCrawler:
                 else:
                     self.stats["skipped_unchanged"] += 1
 
-                # Link Discovery: Enqueue children if depth < max_depth
-                if depth < max_depth:
-                    page_links, doc_links = PageExtractor.harvest_links(resp.content, url, allowed_domains)
-                    new_links_count = 0
-                    for child_url in doc_links + page_links:
-                        if child_url not in visited:
-                            visited.add(child_url)
-                            queue.append((child_url, depth + 1))
-                            new_links_count += 1
-                    if new_links_count > 0:
-                        self.log_activity(f"🔗 Discovered {new_links_count} links on {title[:30]} (Depth {depth+1})")
+            # Link Discovery: Enqueue children if depth < max_depth
+            if depth < max_depth:
+                page_links, doc_links = PageExtractor.harvest_links(resp.content, url, allowed_domains)
+                new_links_count = 0
+                for child_url in doc_links + page_links:
+                    if child_url not in visited:
+                        visited.add(child_url)
+                        queue.append((child_url, depth + 1))
+                        new_links_count += 1
+                if new_links_count > 0:
+                    self.log_activity(f"🔗 Discovered {new_links_count} links on {title[:30]} (Depth {depth+1})")
 
 
 # Singleton Crawler Instance
