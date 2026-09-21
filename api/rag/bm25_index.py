@@ -51,47 +51,72 @@ class BM25Index:
             if self.bm25 is not None and self.corpus:
                 return
 
-            db_path = os.path.abspath("university_rag.db")
-            if not os.path.exists(db_path):
+            from api.core.config import settings
+            rows = []
+            if "postgresql" in settings.DATABASE_URL:
+                try:
+                    import psycopg2
+                    pg_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+                    conn = psycopg2.connect(pg_url)
+                    cur = conn.cursor()
+                    cur.execute("""
+                        SELECT c.id, c.document_id, c.page_number,
+                               SUBSTRING(COALESCE(c.section, ''), 1, 300),
+                               SUBSTRING(COALESCE(c.text, ''), 1, 1500),
+                               SUBSTRING(COALESCE(d.title, ''), 1, 300),
+                               COALESCE(d.department, ''),
+                               COALESCE(d.semester, ''),
+                               COALESCE(d.course, '')
+                        FROM chunks c
+                        JOIN documents d ON c.document_id = d.id
+                    """)
+                    rows = cur.fetchall()
+                    conn.close()
+                except Exception as e:
+                    logger.warning(f"Could not load BM25 corpus from PostgreSQL: {e}")
+            else:
+                db_path = os.path.abspath("university_rag.db")
+                if os.path.exists(db_path):
+                    try:
+                        conn = sqlite3.connect(db_path, timeout=10.0)
+                        conn.execute("PRAGMA journal_mode=WAL;")
+                        conn.execute("PRAGMA synchronous=NORMAL;")
+                        cur = conn.cursor()
+                        cur.execute("""
+                            SELECT c.id, c.document_id, c.page_number,
+                                   SUBSTR(COALESCE(c.section, ''), 1, 300),
+                                   SUBSTR(COALESCE(c.text, ''), 1, 1500),
+                                   SUBSTR(COALESCE(d.title, ''), 1, 300),
+                                   COALESCE(d.department, ''),
+                                   COALESCE(d.semester, ''),
+                                   COALESCE(d.course, '')
+                            FROM chunks c
+                            JOIN documents d ON c.document_id = d.id
+                        """)
+                        rows = cur.fetchall()
+                        conn.close()
+                    except Exception as e:
+                        logger.warning(f"Could not load BM25 corpus from SQLite: {e}")
+
+            if not rows:
                 return
 
-            try:
-                conn = sqlite3.connect(db_path, timeout=10.0)
-                conn.execute("PRAGMA journal_mode=WAL;")
-                conn.execute("PRAGMA synchronous=NORMAL;")
-                cur = conn.cursor()
-                cur.execute("""
-                    SELECT c.id, c.document_id, c.page_number,
-                           SUBSTR(COALESCE(c.section, ''), 1, 300),
-                           SUBSTR(COALESCE(c.text, ''), 1, 1500),
-                           SUBSTR(COALESCE(d.title, ''), 1, 300),
-                           COALESCE(d.department, ''),
-                           COALESCE(d.semester, ''),
-                           COALESCE(d.course, '')
-                    FROM chunks c
-                    JOIN documents d ON c.document_id = d.id
-                """)
-                rows = cur.fetchall()
-                conn.close()
-
-                chunks = []
-                for r in rows:
-                    chunks.append({
-                        "chunk_id": str(r[0]),
-                        "document_id": str(r[1]),
-                        "page_number": r[2],
-                        "section": r[3] or "",
-                        "text": r[4] or "",
-                        "title": r[5] or "",
-                        "department": r[6] or "",
-                        "semester": r[7] or "",
-                        "course": r[8] or "",
-                    })
-                del rows
-                if chunks:
-                    self.build_index(chunks)
-            except Exception as e:
-                logger.warning(f"Could not auto-load BM25 corpus from SQLite: {e}")
+            chunks = []
+            for r in rows:
+                chunks.append({
+                    "chunk_id": str(r[0]),
+                    "document_id": str(r[1]),
+                    "page_number": r[2],
+                    "section": r[3] or "",
+                    "text": r[4] or "",
+                    "title": r[5] or "",
+                    "department": r[6] or "",
+                    "semester": r[7] or "",
+                    "course": r[8] or "",
+                })
+            del rows
+            if chunks:
+                self.build_index(chunks)
 
     def build_index(self, chunks: List[Dict[str, Any]]):
         """Build BM25 index from list of chunk payloads, including title & section for rich lexical matching."""

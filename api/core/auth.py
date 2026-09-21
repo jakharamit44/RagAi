@@ -21,7 +21,9 @@ ALGORITHM = "HS256"
 ROLE_HIERARCHY = {
     "student": 1,
     "faculty": 2,
+    "auditor": 2,
     "admin": 3,
+    "superadmin": 4,
 }
 
 security_bearer = HTTPBearer(auto_error=False)
@@ -202,6 +204,41 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"error": {"code": "unauthorized", "message": "Invalid token claims"}}
             )
+
+        # Check if token is for an administrator
+        user_type = payload.get("user_type")
+        if user_type == "admin_user":
+            try:
+                from db.models import AdminUser
+                async with async_session_factory() as session:
+                    stmt = select(AdminUser).where(AdminUser.username == external_id)
+                    admin_rec = (await session.execute(stmt)).scalar_one_or_none()
+                    if not admin_rec:
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail={"error": {"code": "unauthorized", "message": "Administrator account not found."}}
+                        )
+                    if not admin_rec.is_active:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail={"error": {"code": "account_disabled", "message": "Administrator account is deactivated."}}
+                        )
+                    return User(
+                        id=admin_rec.id,
+                        external_id=admin_rec.username,
+                        role=admin_rec.role,
+                        department=None
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning(f"Database contention during admin auth lookup for {external_id}: {e}")
+                # Verified cryptographic claims fallback
+                return User(
+                    external_id=external_id,
+                    role=payload.get("role", "admin"),
+                    department=None
+                )
 
         # Fast in-memory cache lookup to avoid SQLite lock contention during active ingestion
         if external_id in _JWT_USER_CACHE:

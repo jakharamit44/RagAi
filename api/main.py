@@ -20,6 +20,8 @@ from api.routers.admin_governance import router as admin_governance_router
 from api.routers.scraper import router as scraper_router
 from api.routers.brain import router as brain_router, alias_router as brain_alias_router
 from api.routers.context import router as context_router
+from api.routers.server_migration import router as migration_router
+from api.routers.admin_auth import router as admin_auth_router, ensure_initial_superadmin
 from api.context.tiered_engine import tiered_engine
 from api.scraper.scheduler import scraper_scheduler
 from db.session import init_db, async_session_factory
@@ -45,6 +47,11 @@ async def lifespan(app: FastAPI):
     print("LIFESPAN: 1. init_db starting...", flush=True)
     await init_db()
     print("LIFESPAN: 1. init_db done!", flush=True)
+
+    try:
+        await ensure_initial_superadmin()
+    except Exception as e:
+        logger.warning(f"Note on initial superadmin setup: {e}")
 
     # Seed default MDU WebScrapeJob if none exists
     try:
@@ -190,7 +197,14 @@ async def observability_and_security_middleware(request: Request, call_next):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' data: https://cdnjs.cloudflare.com; object-src 'none';"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com; "
+        "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; "
+        "font-src 'self' data: https://cdnjs.cloudflare.com https://fonts.gstatic.com; "
+        "connect-src 'self'; "
+        "object-src 'none';"
+    )
 
     return response
 
@@ -202,13 +216,27 @@ static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "static"))
 os.makedirs(static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
+# Mount Admin UI (React production build)
+admin_dist_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "admin-ui", "dist"))
+admin_assets_dir = os.path.join(admin_dist_dir, "assets")
+if os.path.isdir(admin_assets_dir):
+    app.mount("/admin/assets", StaticFiles(directory=admin_assets_dir), name="admin_assets")
+
 @app.get("/", include_in_schema=False)
 async def root_redirect():
     return RedirectResponse("/chat")
 
 @app.get("/admin", include_in_schema=False)
-async def admin_dashboard():
-    return FileResponse(os.path.join(static_dir, "admin.html"))
+@app.get("/admin/", include_in_schema=False)
+@app.get("/admin/{full_path:path}", include_in_schema=False)
+async def admin_dashboard(full_path: str = ""):
+    admin_index = os.path.join(admin_dist_dir, "index.html")
+    if os.path.isfile(admin_index):
+        return FileResponse(admin_index)
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Admin UI build not found. Please compile frontend assets: cd admin-ui && npm run build"
+    )
 
 @app.get("/chat", include_in_schema=False)
 async def student_chat():
@@ -243,6 +271,8 @@ app.include_router(scraper_router)
 app.include_router(brain_router)
 app.include_router(brain_alias_router)
 app.include_router(context_router)
+app.include_router(migration_router)
+app.include_router(admin_auth_router)
 
 
 if __name__ == "__main__":

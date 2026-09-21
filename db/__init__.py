@@ -1,5 +1,5 @@
 from .session import get_db, init_db, async_session_factory
-from .models import Base, WatchedFolder, ManifestEntry, Document, Chunk, User, QueryAuditLog
+from .models import Base, WatchedFolder, ManifestEntry, Document, Chunk, User, AdminUser, QueryAuditLog
 
 __all__ = [
     "get_db",
@@ -11,5 +11,6 @@ __all__ = [
     "Document",
     "Chunk",
     "User",
+    "AdminUser",
     "QueryAuditLog",
 ]

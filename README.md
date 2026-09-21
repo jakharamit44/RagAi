@@ -103,6 +103,9 @@ The platform is anchored on five inviolable architectural principles:
 
 ```
 d:\RagAi\
+├── admin-ui/                      # Enterprise Admin Panel (React 18 + Vite + Tailwind SPA)
+│   ├── src/                       # 14 Tab Modules, Auth context, API client, Neural visualizer
+│   └── dist/                      # Compiled production assets served by FastAPI at /admin
 ├── api/                           # Core FastAPI Web Service
 │   ├── brain/                     # Cognitive AI Brain & Knowledge Cortex Subsystem
 │   │   ├── graph_engine.py        # Semantic graph builder (University Core -> Dept -> Course -> Concept)
@@ -116,6 +119,7 @@ d:\RagAi\
 │   │   ├── exceptions.py          # RFC 7807 problem details error handlers
 │   │   ├── llm_router.py          # Local-first LLM router with prompt boundary fencing
 │   │   ├── metrics.py             # Prometheus metric collectors & histograms
+│   │   ├── passwords.py           # PBKDF2-HMAC-SHA256 password hashing & verification
 │   │   ├── rate_limiter.py        # Sliding-window IP rate limiter
 │   │   └── security_logger.py     # Background security incident ledger
 │   ├── rag/                       # Retrieval-Augmented Generation subsystem
@@ -127,6 +131,7 @@ d:\RagAi\
 │   │   ├── retriever.py           # Hybrid RRF retriever combining dense + sparse results
 │   │   └── self_improver.py       # Autonomous Karpathy prompt optimization engine
 │   ├── routers/                   # API Route controllers
+│   │   ├── admin_auth.py          # Admin authentication, JWT login, and user management
 │   │   ├── admin_governance.py    # Enterprise governance, folder scan, and diagnostic endpoints
 │   │   ├── ask.py                 # POST /api/v1/ask grounded QA & feedback endpoint
 │   │   ├── auth.py                # POST /auth/login, POST /auth/token, GET /auth/me
@@ -135,7 +140,8 @@ d:\RagAi\
 │   │   ├── documents.py           # Ingestion, folder registration, and manifest listings
 │   │   ├── health.py              # GET /health subsystem status probe
 │   │   ├── metrics.py             # GET /metrics Prometheus scrape endpoint
-│   │   └── scraper.py             # Autonomous crawler control, jobs, and delta manifests
+│   │   ├── scraper.py             # Autonomous crawler control, jobs, and delta manifests
+│   │   └── server_migration.py    # Remote Ubuntu VM migration, telemetry, and live cutover
 │   ├── scraper/                   # Autonomous University Website Scraper & Crawler
 │   │   ├── crawler.py             # Polite BFS crawler with semaphore & delay controls
 │   │   ├── page_extractor.py      # Trafilatura / BeautifulSoup content extraction
@@ -144,8 +150,7 @@ d:\RagAi\
 │   │   ├── ingest_bridge.py       # Seamless delta change indexer to Qdrant & SQLite
 │   │   ├── storage_cleaner.py     # Safe temporary crawler download reclamation
 │   │   └── url_normalizer.py      # SSRF defense, DNS pre-resolution, and domain whitelist
-│   ├── static/                    # Frontend HTML, CSS, and JS assets
-│   │   ├── admin.html             # Admin Dashboard UI with Live Brain Cortex Visualizer
+│   ├── static/                    # Frontend HTML, CSS, and JS assets (Public student portal)
 │   │   ├── chat.html              # Student Chat Widget UI (with KaTeX & table support)
 │   │   └── ragai_chat_widget.js   # Universal embeddable JavaScript chat widget
 │   └── main.py                    # Application entrypoint and startup lifecycle

@@ -139,6 +139,26 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class AdminUser(Base):
+    """
+    Enterprise administrator accounts with credential authentication,
+    role tiering (superadmin, admin, auditor), password change tracking, and audit log.
+    """
+    __tablename__ = "admin_users"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    username = Column(String(64), unique=True, nullable=False, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    role = Column(String(32), default="admin", nullable=False)  # superadmin / admin / auditor
+    full_name = Column(String(128), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    must_change_password = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    last_login_at = Column(DateTime, nullable=True)
+
+
 class QueryAuditLog(Base):
     """
     Content-free query audit trail for security, latency & abuse monitoring.

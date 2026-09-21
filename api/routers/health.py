@@ -85,8 +85,9 @@ def get_storage_telemetry() -> StorageTelemetry:
     if _STORAGE_TELEMETRY_CACHE is not None and (now - _LAST_STORAGE_CACHE_TIME) < _STORAGE_CACHE_TTL:
         return _STORAGE_TELEMETRY_CACHE
 
-    db_mb = get_dir_size_mb("university_rag.db")
-    vec_mb = get_dir_size_mb("data/qdrant_storage")
+    from api.core.config import settings
+    db_mb = 0.0 if "postgresql" in settings.DATABASE_URL else get_dir_size_mb("university_rag.db")
+    vec_mb = 0.0 if getattr(settings, "USE_REMOTE_QDRANT", False) or settings.VECTOR_STORE_HOST not in ["localhost", "127.0.0.1", ""] else get_dir_size_mb("data/qdrant_storage")
     uploads_mb = get_dir_size_mb("data/uploads")
     hf_cache = os.getenv("HF_HOME") or os.path.expanduser("~/.cache/huggingface")
     hf_mb = get_dir_size_mb(hf_cache)

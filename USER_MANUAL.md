@@ -124,6 +124,22 @@
      - 3.16.4 [Split-Pane Hierarchical Virtual Filesystem Tree](#3164-split-pane-hierarchical-virtual-filesystem-tree)
      - 3.16.5 [Glassmorphic Tier Inspector (L0 / L1 / L2 / Metadata) & "Copy URI" Action](#3165-glassmorphic-tier-inspector-l0--l1--l2--metadata--copy-uri-action)
      - 3.16.6 [OpenViking Semantic Search Console (ctx-find-input & "Search Context")](#3166-openviking-semantic-search-console-ctx-find-input--search-context)
+   - 3.17 [Tab 13: Server Migration & Infrastructure Transfer (tab-migrate)](#317-tab-13-server-migration--infrastructure-transfer-tab-migrate)
+     - 3.17.1 [Active Source Telemetry Bento Cards](#3171-active-source-telemetry-bento-cards)
+     - 3.17.2 [Target Server Connection Parameters Form](#3172-target-server-connection-parameters-form)
+     - 3.17.3 ["Quick-Fill Standard VM Defaults" Action](#3173-quick-fill-standard-vm-defaults-action)
+     - 3.17.4 [Pre-Flight Probe & 5-Service Health Check Matrix](#3174-pre-flight-probe--5-service-health-check-matrix)
+     - 3.17.5 ["Start Full Migration" & Stage Progression Tracker](#3175-start-full-migration--stage-progression-tracker)
+     - 3.17.6 [Streaming Migration Terminal Console](#3176-streaming-migration-terminal-console)
+     - 3.17.7 [Data Parity Audit Report Table](#3177-data-parity-audit-report-table)
+     - 3.17.8 ["Switch Active Infrastructure" Live Cutover & Rollback](#3178-switch-active-infrastructure-live-cutover--rollback)
+   - 3.18 [Tab 14: Enterprise Admin Identity, Authentication & Security Governance (admin-ui)](#318-tab-14-enterprise-admin-identity-authentication--security-governance-admin-ui)
+     - 3.18.1 [Enterprise Login Screen & Cryptographic OWASP PBKDF2 Password Authentication](#3181-enterprise-login-screen--cryptographic-owasp-pbkdf2-password-authentication)
+     - 3.18.2 [Administrator Header Profile & "Change Password" Self-Service Modal](#3182-administrator-header-profile--change-password-self-service-modal)
+     - 3.18.3 [Multi-Admin Provisioning Table & "Add Administrator" Modal](#3183-multi-admin-provisioning-table--add-administrator-modal)
+     - 3.18.4 [RBAC Role Hierarchy (superadmin, admin, auditor) & Active Status Toggles](#3184-rbac-role-hierarchy-superadmin-admin-auditor--active-status-toggles)
+     - 3.18.5 [Self-Lockout & Last Superadmin Protection Safeguards](#3185-self-lockout--last-superadmin-protection-safeguards)
+     - 3.18.6 [Modern React SPA Architecture in admin-ui/ & FastAPI Production Serving](#3186-modern-react-spa-architecture-in-admin-ui--fastapi-production-serving)
 4. [Student Chat Portal (/chat) — Complete User Guide](#4-student-chat-portal-chat--complete-user-guide)
    - 4.1 [Academic Scope Selectors](#41-academic-scope-selectors)
      - 4.1.1 [Department Select Dropdown (chat-dept-select)](#411-department-select-dropdown-chat-dept-select)
@@ -1227,6 +1243,155 @@ Displays real-time metrics across the hierarchical virtual filesystem:
   - `<div id="ctx-find-results">`: Container with `<tbody id="ctx-find-tbody">` listing semantically ranked context nodes matching the query.
 - **Purpose & Use Case:** Emulates OpenViking's `ov find` operation. Performs directory-guided semantic search over L0/L1 abstractions, allowing operators and external agents to pinpoint exact knowledge branches without loading raw chunk blobs into the LLM context.
 
+### 3.17 Tab 13: Server Migration & Infrastructure Transfer (`tab-migrate`)
+
+The Server Migration hub enables institutional administrators to replicate all database records, vector indexes, and caching services from the active Ubuntu VM to a new server, verify data parity, and execute an atomic live cutover with zero downtime.
+
+#### 3.17.1 Active Source Telemetry Bento Cards
+- **UI Identifiers:**
+  - `src-stat-host`: Displays the currently connected active source server IP (`192.168.81.150`).
+  - `src-stat-db-rows`: Total live row count aggregated across all 14 PostgreSQL tables (`205,211 rows`).
+  - `src-stat-vectors`: Total vector points residing in active Qdrant collection (`373,635 vectors`).
+  - `src-stat-rollback`: Rollback readiness indicator (`Saved: 192.168.81.150` or `No Rollback Saved`).
+  - `<button id="btn-quick-rollback" onclick="openRollbackModal()">Rollback to Previous VM</button>`: Rapid rollback trigger.
+
+#### 3.17.2 Target Server Connection Parameters Form
+- **UI Identifiers:**
+  - `<input id="mig-target-host">`: Target Ubuntu VM IP address or hostname (e.g. `192.168.81.160`).
+  - PostgreSQL Fields: `mig-pg-port` (`5432`), `mig-pg-db` (`university_rag`), `mig-pg-user` (`ragai`), `mig-pg-pass`.
+  - Qdrant Fields: `mig-qdrant-port` (`6333`), `mig-qdrant-key`, `mig-qdrant-https` (SSL toggle).
+  - Redis Fields: `mig-redis-pass` (Port `6379`).
+  - TEI Embeddings Field: `mig-tei-port` (Port `8080`).
+  - MinIO S3 Fields: `mig-minio-secret` (Port `9000`, User `ragai_admin`).
+
+#### 3.17.3 "Quick-Fill Standard VM Defaults" Action
+- **UI Identifier:** `<button onclick="quickFillMigrationDefaults()">`
+- **Purpose:** Automatically pre-populates standard stack ports (5432, 6333, 6379, 8080, 9000) and default passwords (`9wtbai4u6xHovYkSnl2TVApBI0ZjJMK1`), leaving only the target IP for the administrator to specify.
+
+#### 3.17.4 Pre-Flight Probe & 5-Service Health Check Matrix
+- **UI Identifiers:**
+  - `<button id="btn-probe-vm" onclick="probeTargetVM()">`: Initiates non-destructive pre-flight probes across all 5 target services.
+  - `probe-card-postgres`: Verifies PostgreSQL connectivity and retrieves database version string.
+  - `probe-card-qdrant`: Verifies Qdrant REST API reachability and collection discovery.
+  - `probe-card-redis`: Issues Redis `PING` and records roundtrip latency.
+  - `probe-card-tei`: Queries Hugging Face TEI `/health` endpoint for GPU embedder readiness.
+  - `probe-card-minio`: Probes MinIO S3 storage `/minio/health/live` endpoint.
+  - `probe-summary-badge`: Overall readiness pill (`All 5 Services Operational ✓`).
+
+#### 3.17.5 "Start Full Migration" & Stage Progression Tracker
+- **UI Identifiers:**
+  - `<button id="btn-start-migration" onclick="startServerMigration()">`: Triggers background replication pipeline.
+  - `<button id="btn-cancel-migration" onclick="cancelServerMigration()">`: Safely aborts running migration.
+  - Stage Indicators: `step-badge-bootstrap` → `step-badge-postgres` → `step-badge-qdrant` → `step-badge-verification`.
+  - `mig-progress-bar`: Visual percentage bar tracking end-to-end streaming progress.
+  - `mig-progress-percent`: Exact numeric progress (e.g. `95.4%`).
+  - `mig-current-task`: Real-time operation label (e.g. `Streaming vectors: 180,000/373,635 (batch 18)...`).
+
+#### 3.17.6 Streaming Migration Terminal Console
+- **UI Identifier:** `<div id="mig-terminal-logs">`
+- **Purpose:** Live dark monospace terminal streaming timestamped telemetry logs, batch chunk transfers, and replication events.
+
+#### 3.17.7 Data Parity Audit Report Table
+- **UI Identifiers:**
+  - `parity-report-card`: Parity verification panel container.
+  - `mig-parity-badge`: Overall match status badge (`Parity: 100% MATCH ✓` or `MISMATCH ✗`).
+  - `parity-table-body`: Row-by-row table comparing Source Count vs Target Count for all 14 database tables and Qdrant collections.
+
+#### 3.17.8 "Switch Active Infrastructure" Live Cutover & Rollback
+- **UI Identifiers:**
+  - `<button id="btn-cutover" onclick="openCutoverModal()">Switch Active Infrastructure to New Server</button>`: Opens confirmation modal detailing zero-downtime hot reload.
+  - `cutover-modal`: Confirmation dialog showing target host and backup procedures.
+  - `<button id="btn-rollback" onclick="openRollbackModal()">Rollback to Previous Server</button>`: Reverts to previous server state archived in `.env.rollback`.
+  - `rollback-modal`: Reversion dialog with instant engine rebind.
+
+---
+
+### 3.18 Tab 14: Enterprise Admin Identity, Authentication & Security Governance (`admin-ui`)
+
+The modern Enterprise Administration Hub is engineered as a production-grade single-page application built with **React 18**, **Tailwind CSS**, and **Vite** located in the dedicated `admin-ui/` repository folder. It completely eliminates hardcoded development credentials and replaces legacy static HTML files with a cryptographically enforced authentication wall, granular RBAC permissions, self-service password changes, and administrator lifecycle provisioning.
+
+```
++----------------------------------------------------------------------------------------------------+
+|  [SHIELD] MDU RAG AI — Enterprise Admin Hub   [VM: 192.168.81.150 • 205,235 rows]  (admin [superadmin])|
+|  [Key] Change Password   [Logout]                                                                  |
++----------------------------------------------------------------------------------------------------+
+|  [Brain Cortex] [Ingest] [Pipeline] [DLQ] [Docs] [API Keys] [Firewall] [Scraper] [Migration] [Admins]|
++----------------------------------------------------------------------------------------------------+
+|  REGISTERED ADMINISTRATORS                                        [ + Add Administrator ] [ ↻ ]    |
+|  +---------------+------------------------+------------+------------+------------------+---------+  |
+|  | Admin User    | Email Address          | Role Tier  | Status     | Last Login       | Actions |  |
+|  +---------------+------------------------+------------+------------+------------------+---------+  |
+|  | admin (You)   | admin@mdu.ac.in        | SUPERADMIN | Active     | Today, 12:15 PM  | [—] [—] |  |
+|  | jdoe_sec      | jdoe@mdu.ac.in         | AUDITOR    | Active     | Yesterday        | [⏻] [🗑] |  |
+|  +---------------+------------------------+------------+------------+------------------+---------+  |
++----------------------------------------------------------------------------------------------------+
+```
+
+#### 3.18.1 Enterprise Login Screen & Cryptographic OWASP PBKDF2 Password Authentication
+- **Access URL:** `http://localhost:8000/admin` (auto-mounts the compiled React application).
+- **Authentication Wall:** Unauthenticated requests or expired sessions are intercepted by `AuthContext.jsx` and presented with the clean, minimalist **Sign In to Admin Portal** interface.
+- **Default Seed Superadmin Account:**
+  - **Username:** `admin` (or configured via `DEFAULT_ADMIN_USERNAME` in `.env`)
+  - **Email:** `admin@mdu.ac.in`
+  - **Initial Password:** `Admin@MDU2026!` (or configured via `ADMIN_INITIAL_PASSWORD` in `.env`)
+- **Underlying Encryption:** Password hashes are computed using Python standard library `hashlib.pbkdf2_hmac` with **SHA-256**, **600,000 iterations**, and unique 16-byte cryptographic random salts (`os.urandom(16)`). Plaintext passwords are never stored. Verification uses constant-time comparison (`hmac.compare_digest`) to prevent side-channel timing attacks.
+- **Audit Logging:** Every successful login records an `ADMIN_LOGIN_SUCCESS` event in the security audit trail. Failed login attempts record `AUTH_FAILURE` incidents with the client IP address and timestamp.
+
+#### 3.18.2 Administrator Header Profile & "Change Password" Self-Service Modal
+- **Location:** Global top navigation header.
+- **Profile Badge:** Displays the logged-in administrator's username, first initial avatar, and color-coded role badge (`superadmin` in purple, `admin` in blue, `auditor` in yellow).
+- **Key Icon Button (`ChangePasswordModal`):**
+  - **Current Password Input:** Verifies the administrator's existing password before permitting changes.
+  - **New Password Input & Confirm Input:** Ensures typographical accuracy.
+  - **Real-Time Security Standards Matrix:** Validates compliance with OWASP enterprise standards:
+    - Minimum 8 characters in length
+    - At least one uppercase letter (`A-Z`)
+    - At least one lowercase letter (`a-z`)
+    - At least one numerical digit (`0-9`)
+    - At least one special symbol (`!@#$%^&*` etc.)
+    - Must not be identical to the current password.
+  - **Endpoint:** `POST /api/v1/admin/auth/change-password`.
+
+#### 3.18.3 Multi-Admin Provisioning Table & "Add Administrator" Modal
+- **Location:** Tab 14 (**Admin Users**).
+- **"Add Administrator" Button:** Opens the user provisioning modal allowing superadmins to create additional staff accounts:
+  - **Username:** 3–50 alphanumeric characters with hyphens and underscores.
+  - **Email:** University email address (e.g. `staff@mdu.ac.in`).
+  - **Full Name:** Friendly display name for audit trails.
+  - **Role Tier:** Selectable privilege level (`superadmin`, `admin`, or `auditor`).
+  - **Initial Password:** Temporary password meeting complexity rules.
+  - **Endpoint:** `POST /api/v1/admin/auth/users`.
+
+#### 3.18.4 RBAC Role Hierarchy & Active Status Toggles
+- **Role Tiering:**
+  - **`superadmin` (Tier 4):** Full system access, administrator provisioning, user deletion, infrastructure migration, and destructive operations (e.g. purge corpus).
+  - **`admin` (Tier 3):** Management of folder watchers, crawlers, document re-indexing, prompt rules, and API keys.
+  - **`auditor` (Tier 2):** Read-only inspection of security incident logs, telemetry, and system diagnostics.
+  - **`faculty` (Tier 2) / `student` (Tier 1):** Course and student chat querying only.
+- **Power Toggle Button (`PATCH /api/v1/admin/auth/users/{user_id}/status`):** Instantly activates or deactivates an administrator account without deleting their history. Deactivated accounts receive immediate `403 Forbidden` responses.
+
+#### 3.18.5 Self-Lockout & Last Superadmin Protection Safeguards
+- **Self-Deactivation Prevention:** The system prohibits an administrator from deactivating their own currently logged-in account, preventing accidental administrative lockouts.
+- **Self-Deletion Prevention:** An administrator cannot delete their own account.
+- **Last Superadmin Guarantee:** The system refuses to delete or deactivate the last remaining active superadmin in the database, ensuring the university platform can never become orphaned without an administrator.
+
+#### 3.18.6 Modern React SPA Architecture in `admin-ui/` & FastAPI Production Serving
+- **Project Structure:**
+  - `admin-ui/src/components/layout/`: `Header.jsx`, `Navigation.jsx`
+  - `admin-ui/src/components/auth/`: `LoginView.jsx`
+  - `admin-ui/src/components/tabs/`: All 14 administrative modules (`BrainTab`, `IngestTab`, `PipelineTab`, `FailedTab`, `DocsTab`, `ApiKeysTab`, `FirewallTab`, `ScraperTab`, `ManifestTab`, `SecurityTab`, `DiagnosticsTab`, `SettingsTab`, `MigrationTab`, `AdminUsersTab`)
+  - `admin-ui/src/context/`: `AuthContext.jsx` (JWT persistence, session refresh, automatic 401 redirect)
+  - `admin-ui/src/api/`: `client.js` (Typed endpoint wrappers with automatic Bearer token injection)
+- **FastAPI Integration (`api/main.py`):**
+  - Production static bundles from `admin-ui/dist` are mounted at `/admin/assets` and served at `/admin`, `/admin/`, and `/admin/*`.
+  - The legacy `admin.html` prototype has been retired; all administration is now exclusively routed through the secured React SPA.
+- **Development Workflow:**
+  ```bash
+  cd admin-ui
+  npm run dev    # Launches Vite dev server with HMR on http://localhost:5173
+  npm run build  # Compiles production bundle to admin-ui/dist
+  ```
+
 ---
 
 ## 4. Student Chat Portal (/chat) — Complete User Guide
@@ -1678,6 +1843,80 @@ Content-Type: application/json
   }
   ```
 
+#### 8. Pre-Flight Server Migration Probe (`POST /api/v1/admin/migration/probe`)
+- **Access Level:** Admin (`admin` role)
+- **Request Payload:** `TargetVMSpec` (JSON specifying host, postgres, qdrant, redis, tei, and minio ports and credentials).
+- **Response Format:**
+  ```json
+  {
+    "all_ok": true,
+    "host": "192.168.81.160",
+    "services": {
+      "postgres": {"name": "PostgreSQL", "ok": true, "latency_ms": 12.4, "details": "Connected (PostgreSQL 16.15)"},
+      "qdrant": {"name": "Qdrant Vector DB", "ok": true, "latency_ms": 28.1, "details": "Connected (1 collections found)"},
+      "redis": {"name": "Redis Cache", "ok": true, "latency_ms": 2.5, "details": "PONG received, cluster ready"},
+      "tei": {"name": "TEI GPU Embedder", "ok": true, "latency_ms": 18.2, "details": "HTTP 200 OK (MiniLM L6v2 ready)"},
+      "minio": {"name": "MinIO S3 Object Storage", "ok": true, "latency_ms": 15.0, "details": "HTTP 200 OK"}
+    }
+  }
+  ```
+
+#### 9. Start Server Migration Pipeline (`POST /api/v1/admin/migration/start`)
+- **Access Level:** Admin (`admin` role)
+- **Request Payload:** `TargetVMSpec`
+- **Response Format:**
+  ```json
+  {
+    "message": "Migration started successfully.",
+    "job_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+  }
+  ```
+
+#### 10. Query Live Migration Progress & Parity (`GET /api/v1/admin/migration/status`)
+- **Access Level:** Admin (`admin` role)
+- **Response Format:**
+  ```json
+  {
+    "job_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+    "status": "completed",
+    "stage": "completed",
+    "progress_percent": 100.0,
+    "current_task": "Migration & Parity Verification complete. Ready for live cutover.",
+    "postgres_migrated": 205211,
+    "postgres_total": 205211,
+    "qdrant_migrated": 373635,
+    "qdrant_total": 373635,
+    "logs": ["[11:32:01] Initiated full VM data migration...", "[11:34:10] Server migration finished successfully."],
+    "parity_report": {
+      "overall_parity": true,
+      "total_source_records": 578846,
+      "total_target_records": 578846
+    }
+  }
+  ```
+
+#### 11. Execute Atomic Live Cutover (`POST /api/v1/admin/migration/cutover`)
+- **Access Level:** Admin (`admin` role)
+- **Response Format:**
+  ```json
+  {
+    "status": "success",
+    "message": "Live switchover completed! Active backend is now connected to 192.168.81.160.",
+    "active_host": "192.168.81.160",
+    "backup_file": "d:\\RagAi\\.env.bak.1742567890"
+  }
+  ```
+
+#### 12. Instant Infrastructure Rollback (`POST /api/v1/admin/migration/rollback`)
+- **Access Level:** Admin (`admin` role)
+- **Response Format:**
+  ```json
+  {
+    "status": "success",
+    "message": "Successfully rolled back infrastructure to previous server (192.168.81.150).",
+    "active_host": "192.168.81.150"
+  }
+  ```
 
 ## 7. System Troubleshooting & FAQ
 
@@ -1723,6 +1962,16 @@ Content-Type: application/json
 - Real-time simulation of semantic activation cascades (synapses).
 - 4-phase reasoning telemetry explaining *why* specific documents were retrieved.
 - Episodic memory tracking of institutional inquiry trends over time.
+
+#### Q8: How do I migrate RagAi services to a new Ubuntu VM or decommission my current server?
+**Answer:**
+1. On the new Ubuntu VM, deploy the stack using `docker compose -f docker-compose.ubuntu-vm.yml up -d`.
+2. Open the RagAi Admin Hub (`/admin`) and click the **Server Migration** tab.
+3. Enter the new VM's IP address (or click **Quick-Fill Standard VM Defaults** to auto-populate ports and standard passwords).
+4. Click **Pre-Flight Probe Target VM** to verify connectivity across all 5 services (PostgreSQL, Qdrant, Redis, TEI GPU embedder, MinIO S3).
+5. Click **Start Full Migration**. RagAi will stream all 14 PostgreSQL tables and all 373,635 Qdrant vectors with live console telemetry and perform a data parity audit.
+6. Once parity is confirmed (100% Match), click **Switch Active Infrastructure to New Server**. The system will atomically update `.env` and hot-rebind all database pools, vector clients, and caches in-memory with zero downtime.
+7. If anything unexpected occurs, click **Rollback to Previous Server** for an instant 1-click reversion. Once satisfied, you can safely stop the previous Ubuntu VM.
 
 ---
 
