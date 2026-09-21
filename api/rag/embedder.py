@@ -97,6 +97,19 @@ class LocalEmbedder:
         return vec
 
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        from api.core.config import settings
+        # 1. High-throughput remote embedding inference (e.g. TEI container on Ubuntu VM)
+        if getattr(settings, "REMOTE_EMBEDDING_URL", None):
+            try:
+                import httpx
+                base_url = settings.REMOTE_EMBEDDING_URL.rstrip("/")
+                res = httpx.post(f"{base_url}/embed", json={"inputs": texts}, timeout=10.0)
+                if res.status_code == 200:
+                    return res.json()
+            except Exception as remote_err:
+                logger.debug(f"Remote embedding request to {settings.REMOTE_EMBEDDING_URL} failed ({remote_err}). Falling back to local embedder.")
+
+        # 2. Local SentenceTransformer embedding
         model = self._get_st_model()
         if model:
             try:

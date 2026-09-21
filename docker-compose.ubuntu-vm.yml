@@ -1,0 +1,88 @@
+# ==============================================================================
+# Standalone Docker Compose for Remote Ubuntu VM (192.168.81.150)
+# ==============================================================================
+# Contains 5 Dedicated Services:
+#   1. PostgreSQL 16 (Relational Metadata & Manifest DB)
+#   2. Qdrant Vector Store (384-dim HNSW Vector Engine)
+#   3. Redis 7 (Distributed Cache & Rate Limiter)
+#   4. MinIO (S3-Compatible Object Storage for raw PDFs & Syllabus)
+#   5. Text Embeddings Inference (TEI / FastEmbed for offloaded embeddings)
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. PostgreSQL 16
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ragai
+      POSTGRES_PASSWORD: 9wtbai4u6xHovYkSnl2TVApBI0ZjJMK1
+      POSTGRES_DB: university_rag
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+
+  # ----------------------------------------------------------------------------
+  # 2. Qdrant Vector Store (Web Dashboard at :6333/dashboard)
+  # ----------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: always
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__API_KEY=9wtbai4u6xHovYkSnl2TVApBI0ZjJMK1
+      - QDRANT__SERVICE__GRPC_PORT=6334
+
+  # ----------------------------------------------------------------------------
+  # 3. Redis 7 Cache & Pub/Sub
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: always
+    command: ["redis-server", "--requirepass", "9wtbai4u6xHovYkSnl2TVApBI0ZjJMK1", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis_data:/data
+
+  # ----------------------------------------------------------------------------
+  # 4. MinIO - S3-Compatible Object Storage for Raw PDFs & Syllabus
+  # API Port: 9000 | Web Console: http://<VM_IP>:9001
+  # ----------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ragai_admin
+      MINIO_ROOT_PASSWORD: 9wtbai4u6xHovYkSnl2TVApBI0ZjJMK1
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./minio_data:/data
+
+  # ----------------------------------------------------------------------------
+  # 5. Text Embeddings Inference (TEI) - High-throughput 384-dim Embeddings
+  # Serves sentence-transformers/all-MiniLM-L6-v2 on port 8080
+  # ----------------------------------------------------------------------------
+  tei-embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    container_name: tei-embeddings
+    restart: always
+    command: --model-id sentence-transformers/all-MiniLM-L6-v2 --port 80
+    ports:
+      - "8080:80"
+    volumes:
+      - ./tei_models:/data

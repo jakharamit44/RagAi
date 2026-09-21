@@ -33,9 +33,14 @@ class Settings(BaseSettings):
     DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./university_rag.db", description="Relational DB connection string")
     VECTOR_STORE_HOST: str = Field(default="localhost", description="Qdrant host")
     VECTOR_STORE_PORT: int = Field(default=6333, description="Qdrant port")
+    USE_REMOTE_QDRANT: bool = Field(default=False, description="Explicitly connect to remote Qdrant server (e.g. Docker container) instead of local disk storage")
+    QDRANT_API_KEY: Optional[str] = Field(default=None, description="Optional API key for secured remote Qdrant server")
     VECTOR_COLLECTION_NAME: str = Field(default="university_corpus", description="Primary vector collection")
     QDRANT_COLLECTION_NAME: str = Field(default="university_corpus", description="Qdrant collection alias")
     OBJECT_STORAGE_ENDPOINT: str = Field(default="http://localhost:9000", description="S3-compatible/MinIO endpoint")
+    OBJECT_STORAGE_ACCESS_KEY: Optional[str] = Field(default=None, description="MinIO access key")
+    OBJECT_STORAGE_SECRET_KEY: Optional[str] = Field(default=None, description="MinIO secret key")
+    OBJECT_STORAGE_BUCKET: str = Field(default="university-documents", description="MinIO default bucket")
     REDIS_URL: str = Field(default="redis://localhost:6379/0", description="Cache & rate limit Redis")
 
     # Folder Watcher & Ingestion (Phase 1, 8, 19)
@@ -63,6 +68,7 @@ class Settings(BaseSettings):
     HF_TOKEN: Optional[str] = Field(default=None, description="Hugging Face API Token for fast model downloads")
     MODELS_DIR: str = Field(default=DEFAULT_MODELS_DIR, description="Local project models directory")
     EMBEDDING_MODEL_NAME: str = Field(default="sentence-transformers/all-MiniLM-L6-v2", description="Local embedding model (384-dim)")
+    REMOTE_EMBEDDING_URL: Optional[str] = Field(default=None, description="Optional remote TEI or OpenAI-compatible embedding endpoint (e.g. http://192.168.81.150:8080)")
     RERANKER_MODEL_NAME: str = Field(default="Qwen/Qwen3-Reranker-0.6B", description="Local cross-encoder reranker")
 
     # Retrieval & Generation (Phase 4, 5)

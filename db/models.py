@@ -100,7 +100,6 @@ class Document(Base):
 
     __table_args__ = (
         Index("ix_documents_dept_course", "department", "course"),
-        Index("ix_documents_created_at", "created_at"),
     )
 
 

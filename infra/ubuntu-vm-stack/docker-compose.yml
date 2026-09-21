@@ -1,0 +1,155 @@
+# ==============================================================================
+# Enterprise RAG Infrastructure Stack (Ubuntu VM / Bare Metal / Cloud Server)
+# ==============================================================================
+# Contains:
+#   1. PostgreSQL 16 (Relational Metadata & Audit Store)
+#   2. Qdrant Vector Database (High-throughput HNSW Vector Store)
+#   3. Redis 7 (Distributed Cache & Pub/Sub Queue)
+#   4. [Optional] CloudBeaver (Enterprise Web GUI for PostgreSQL)
+#   5. [Optional] RedisInsight (Official Redis Web Dashboard)
+#   6. [Optional] MinIO (S3-Compatible Object Storage for Scraped PDFs)
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. PostgreSQL 16 - Relational Store (Documents, Chunks, Manifest, Audit)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: ragai-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ragai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-9wtbai4u6xHovYkSnl2TVApBI0ZjJMK1}
+      POSTGRES_DB: ${POSTGRES_DB:-university_rag}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ragai} -d ${POSTGRES_DB:-university_rag}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ragai-net
+
+  # ----------------------------------------------------------------------------
+  # 2. Qdrant - Vector Database with Native Web UI (at :6333/dashboard)
+  # ----------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: ragai-qdrant
+    restart: always
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-9wtbai4u6xHovYkSnl2TVApBI0ZjJMK1}
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__STORAGE__ON_DISK_PAYLOAD: "true"
+    ports:
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ragai-net
+
+  # ----------------------------------------------------------------------------
+  # 3. Redis 7 - Cache & Pub/Sub
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: ragai-redis
+    restart: always
+    command: [
+      "redis-server",
+      "--requirepass", "${REDIS_PASSWORD:-9wtbai4u6xHovYkSnl2TVApBI0ZjJMK1}",
+      "--appendonly", "yes",
+      "--maxmemory", "${REDIS_MAXMEMORY:-2gb}",
+      "--maxmemory-policy", "allkeys-lru"
+    ]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ./redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-9wtbai4u6xHovYkSnl2TVApBI0ZjJMK1}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ragai-net
+
+  # ----------------------------------------------------------------------------
+  # 4. [Optional Profile 'tools'] CloudBeaver - Web GUI for PostgreSQL
+  # Access at http://<VM_IP>:8978
+  # ----------------------------------------------------------------------------
+  cloudbeaver:
+    image: dbeaver/cloudbeaver:latest
+    container_name: ragai-cloudbeaver
+    restart: unless-stopped
+    ports:
+      - "8978:8978"
+    volumes:
+      - ./cloudbeaver_data:/opt/cloudbeaver/workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ragai-net
+    profiles:
+      - tools
+      - all
+
+  # ----------------------------------------------------------------------------
+  # 5. [Optional Profile 'tools'] RedisInsight - Web GUI for Redis
+  # Access at http://<VM_IP>:5540
+  # ----------------------------------------------------------------------------
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: ragai-redis-insight
+    restart: unless-stopped
+    ports:
+      - "5540:5540"
+    volumes:
+      - ./redisinsight_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - ragai-net
+    profiles:
+      - tools
+      - all
+
+  # ----------------------------------------------------------------------------
+  # 6. [Optional Profile 'storage'] MinIO - S3 Object Storage for PDFs
+  # Access API at :9000, Web Console at :9001
+  # ----------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: ragai-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-ragai_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-9wtbai4u6xHovYkSnl2TVApBI0ZjJMK1}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./minio_data:/data
+    networks:
+      - ragai-net
+    profiles:
+      - storage
+      - all
+
+networks:
+  ragai-net:
+    driver: bridge

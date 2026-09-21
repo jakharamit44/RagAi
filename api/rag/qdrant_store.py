@@ -39,11 +39,21 @@ class QdrantStore:
         storage_path = os.path.abspath("data/qdrant_storage")
         os.makedirs(storage_path, exist_ok=True)
 
-        try:
-            if settings.VECTOR_STORE_HOST not in ["localhost", "127.0.0.1"]:
-                return QdrantClient(host=settings.VECTOR_STORE_HOST, port=settings.VECTOR_STORE_PORT, timeout=3.0)
-        except Exception:
-            pass
+        use_remote = getattr(settings, "USE_REMOTE_QDRANT", False) or (settings.VECTOR_STORE_HOST not in ["localhost", "127.0.0.1", ""])
+        if use_remote:
+            try:
+                client = QdrantClient(
+                    host=settings.VECTOR_STORE_HOST,
+                    port=settings.VECTOR_STORE_PORT,
+                    api_key=getattr(settings, "QDRANT_API_KEY", None),
+                    https=getattr(settings, "QDRANT_HTTPS", False),
+                    timeout=10.0
+                )
+                client.get_collections()
+                logger.info(f"Connected to remote Qdrant server at {settings.VECTOR_STORE_HOST}:{settings.VECTOR_STORE_PORT}")
+                return client
+            except Exception as e:
+                logger.warning(f"Could not connect to remote Qdrant at {settings.VECTOR_STORE_HOST}:{settings.VECTOR_STORE_PORT} ({e}). Falling back to local storage.")
 
         return QdrantClient(path=storage_path)
 
