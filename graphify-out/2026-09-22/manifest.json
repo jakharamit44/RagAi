@@ -30,9 +30,9 @@
     "semantic_hash": "29fbc7d7eaf36fc33f0016c84461cb8a"
   },
   "admin-ui/src/api/client.js": {
-    "mtime": 1790056973.5356295,
-    "seen": 1790057116.1631951,
-    "ast_hash": "ce2ca53e58614d36e8d2f76da6ecaa83",
+    "mtime": 1790058987.963571,
+    "seen": 1790059333.0842593,
+    "ast_hash": "6234552c1d3e2e642995f5d5af8447c0",
     "semantic_hash": ""
   },
   "admin-ui/src/components/auth/LoginView.jsx": {
@@ -78,10 +78,10 @@
     "semantic_hash": "0269166984ffa54fb84a9610995af709"
   },
   "admin-ui/src/components/tabs/ApiKeysTab.jsx": {
-    "mtime": 1789984694.2595007,
-    "seen": 1790043828.416958,
-    "ast_hash": "1c273cd54c6cf8617be7ef6cf80d81e3",
-    "semantic_hash": "1c273cd54c6cf8617be7ef6cf80d81e3"
+    "mtime": 1790058994.4407284,
+    "seen": 1790059333.0842736,
+    "ast_hash": "91548d3d0f8595e99a69749696f5aeac",
+    "semantic_hash": ""
   },
   "admin-ui/src/components/tabs/BrainTab.jsx": {
     "mtime": 1789985464.5049908,
@@ -132,10 +132,10 @@
     "semantic_hash": "951d1202003572a2a9ef3eadff65f2b2"
   },
   "admin-ui/src/components/tabs/MigrationTab.jsx": {
-    "mtime": 1789985472.3399494,
-    "seen": 1790043828.416968,
-    "ast_hash": "9c6403aa23995137bd7d7eb2bbe39233",
-    "semantic_hash": "9c6403aa23995137bd7d7eb2bbe39233"
+    "mtime": 1790059029.7401502,
+    "seen": 1790059333.084288,
+    "ast_hash": "e0699f168940df6ef802dc02620d9543",
+    "semantic_hash": ""
   },
   "admin-ui/src/components/tabs/PipelineTab.jsx": {
     "mtime": 1789986494.701019,
@@ -234,16 +234,16 @@
     "semantic_hash": "d7bccc96c804668a20da7e3554c04443"
   },
   "api/core/auth.py": {
-    "mtime": 1789980935.7141604,
-    "seen": 1790043828.4169853,
-    "ast_hash": "d9f17da5a7230f15c7ae99a65d7cc658",
-    "semantic_hash": "d9f17da5a7230f15c7ae99a65d7cc658"
+    "mtime": 1790063450.6552186,
+    "seen": 1790063610.7454228,
+    "ast_hash": "2d0d724ec54dcb0dfe6a57257a635dc9",
+    "semantic_hash": ""
   },
   "api/core/cache.py": {
-    "mtime": 1789030455.2691326,
-    "seen": 1790043828.4169865,
-    "ast_hash": "90aac1a674c4257f9023090fa9b54423",
-    "semantic_hash": "90aac1a674c4257f9023090fa9b54423"
+    "mtime": 1790063587.178064,
+    "seen": 1790063610.7454255,
+    "ast_hash": "ec917e5efbea0e8d3ef48d10d04d7e4a",
+    "semantic_hash": ""
   },
   "api/core/config.py": {
     "mtime": 1789970528.2778907,
@@ -306,10 +306,10 @@
     "semantic_hash": "38ea5bbdcc7cab1c79a6d7018722e82f"
   },
   "api/core/security_logger.py": {
-    "mtime": 1789109476.0155215,
-    "seen": 1790043828.4169974,
-    "ast_hash": "ae0a5b2fa3106a0d006caa63ad097323",
-    "semantic_hash": "ae0a5b2fa3106a0d006caa63ad097323"
+    "mtime": 1790063459.6960528,
+    "seen": 1790063610.7454515,
+    "ast_hash": "02684038c0119c2f75a038ffe06e42d3",
+    "semantic_hash": ""
   },
   "api/main.py": {
     "mtime": 1789988160.5600727,
@@ -324,9 +324,9 @@
     "semantic_hash": "4dff4ca4ea38342084a3e36b70a69f82"
   },
   "api/rag/bm25_index.py": {
-    "mtime": 1790056916.1018002,
-    "seen": 1790057116.1632626,
-    "ast_hash": "14da45a4e1d7a9a29014af90929a6ae8",
+    "mtime": 1790058576.0506234,
+    "seen": 1790059333.084337,
+    "ast_hash": "7683360e722fe1bcb6e4617b67f66471",
     "semantic_hash": ""
   },
   "api/rag/chat_generator.py": {
@@ -366,10 +366,10 @@
     "semantic_hash": "6a16999e814c383734df6ac049b70577"
   },
   "api/rag/retriever.py": {
-    "mtime": 1790004465.3780358,
-    "seen": 1790043828.4170077,
-    "ast_hash": "471bd6aab42c2f1e482da4367a8993f6",
-    "semantic_hash": "471bd6aab42c2f1e482da4367a8993f6"
+    "mtime": 1790059060.6804721,
+    "seen": 1790059333.0843463,
+    "ast_hash": "17f69ccfc0eda2a356f46fa4f554bf3c",
+    "semantic_hash": ""
   },
   "api/rag/self_improver.py": {
     "mtime": 1790010499.083248,
@@ -384,10 +384,10 @@
     "semantic_hash": "3a2e28bf4a501acdf7ccceb0ef1bb86b"
   },
   "api/routers/admin_auth.py": {
-    "mtime": 1789986532.5387695,
-    "seen": 1790043828.4170108,
-    "ast_hash": "380ccf8e87afe04186d508e43995adb7",
-    "semantic_hash": "380ccf8e87afe04186d508e43995adb7"
+    "mtime": 1790058777.6025238,
+    "seen": 1790059333.0843513,
+    "ast_hash": "863a90fd30e0e3de3dec940dfd5cae4a",
+    "semantic_hash": ""
   },
   "api/routers/admin_conversations.py": {
     "mtime": 1789988042.8829105,
@@ -396,16 +396,16 @@
     "semantic_hash": "61e52f5b9a66e62f6d4ed814d0a08ff4"
   },
   "api/routers/admin_governance.py": {
-    "mtime": 1789980959.1715698,
-    "seen": 1790043828.4170125,
-    "ast_hash": "ccf4f865a11c6924e7ce23375d06926a",
-    "semantic_hash": "ccf4f865a11c6924e7ce23375d06926a"
+    "mtime": 1790058952.80083,
+    "seen": 1790059333.0843537,
+    "ast_hash": "273e99e4e82442fe3826ead9846bafcd",
+    "semantic_hash": ""
   },
   "api/routers/ask.py": {
-    "mtime": 1790004509.1362524,
-    "seen": 1790043828.4170132,
-    "ast_hash": "d959383aa61acdfb00b628d183c2179e",
-    "semantic_hash": "d959383aa61acdfb00b628d183c2179e"
+    "mtime": 1790063479.9314053,
+    "seen": 1790063610.7454858,
+    "ast_hash": "dc643af9853a4b8389efc8dcbf1878aa",
+    "semantic_hash": ""
   },
   "api/routers/auth.py": {
     "mtime": 1789108928.1738863,
@@ -450,16 +450,16 @@
     "semantic_hash": "29151b23e86e155ed8ac71575a4171bf"
   },
   "api/routers/scraper.py": {
-    "mtime": 1790052982.0409057,
-    "seen": 1790053137.4299555,
-    "ast_hash": "f5e11ec2ad4b540629411977654fd1fb",
+    "mtime": 1790058968.7796745,
+    "seen": 1790059333.0843663,
+    "ast_hash": "6b64f2b66db5351d839c555b0adcfeb1",
     "semantic_hash": ""
   },
   "api/routers/server_migration.py": {
-    "mtime": 1789985369.3679774,
-    "seen": 1790043828.417022,
-    "ast_hash": "d911c2dc9e88c4824798b8547ee926ca",
-    "semantic_hash": "d911c2dc9e88c4824798b8547ee926ca"
+    "mtime": 1790058980.4553978,
+    "seen": 1790059333.0843675,
+    "ast_hash": "efcb358156aa7d38c729a22e17aeb5df",
+    "semantic_hash": ""
   },
   "api/scraper/__init__.py": {
     "mtime": 1789031676.5175288,
@@ -498,9 +498,9 @@
     "semantic_hash": ""
   },
   "api/scraper/ingest_bridge.py": {
-    "mtime": 1790056947.646691,
-    "seen": 1790057116.1633024,
-    "ast_hash": "f82a081c132dbc7e1c945d1985677318",
+    "mtime": 1790058228.85049,
+    "seen": 1790059333.0843804,
+    "ast_hash": "23dcd742070092b61ebae18699e33ec2",
     "semantic_hash": ""
   },
   "api/scraper/scheduler.py": {
@@ -540,10 +540,10 @@
     "semantic_hash": "d6450a79a53f7d537e1ece0e71f7a3a7"
   },
   "db/session.py": {
-    "mtime": 1789447634.9703693,
-    "seen": 1790043828.4170368,
-    "ast_hash": "6deb4a4dc0ad62907371a2e7187e0f0f",
-    "semantic_hash": "6deb4a4dc0ad62907371a2e7187e0f0f"
+    "mtime": 1790059194.150905,
+    "seen": 1790059333.084391,
+    "ast_hash": "c053718ad5d3b5d369b05d441c13f63c",
+    "semantic_hash": ""
   },
   "ingest_pdfs.py": {
     "mtime": 1788633110.3111968,
@@ -978,10 +978,10 @@
     "semantic_hash": "7d592983add0fb2f71179a85d5c3788d"
   },
   "tests/test_server_migration.py": {
-    "mtime": 1789971853.216255,
-    "seen": 1790043828.417164,
-    "ast_hash": "7b5c8c7b0f9aed6c1ecfc8ee7e0abf56",
-    "semantic_hash": "7b5c8c7b0f9aed6c1ecfc8ee7e0abf56"
+    "mtime": 1790059216.1111262,
+    "seen": 1790059333.0844958,
+    "ast_hash": "2708702ffeac9a9a9635c762812413d3",
+    "semantic_hash": ""
   },
   "tests/test_tiered_context.py": {
     "mtime": 1789116311.0434172,
@@ -1044,9 +1044,9 @@
     "semantic_hash": "adb2d90c27109c51f11d4aab8202062b"
   },
   "api/scraper/dynamic_fetcher.py": {
-    "mtime": 1790045287.9751909,
-    "seen": 1790045398.3327453,
-    "ast_hash": "dd9f896fbdbf1f8fe097e009fa5c305a",
+    "mtime": 1790058703.0237985,
+    "seen": 1790059333.0843775,
+    "ast_hash": "2cb4a980d37a0fdffd6762d6bd43da9b",
     "semantic_hash": ""
   },
   ".agents/rules/graphify.md": {
@@ -1098,9 +1098,9 @@
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1790043791.506102,
-    "seen": 1790045398.3329976,
-    "ast_hash": "5648627f24606af24cafe94ed2563f04",
+    "mtime": 1790057569.567674,
+    "seen": 1790059333.084523,
+    "ast_hash": "b21e2d212c206615c4a598c3bd64598c",
     "semantic_hash": ""
   },
   "GEMINI.md": {
