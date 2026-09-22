@@ -57,6 +57,14 @@ class TargetVMSpec(BaseModel):
     minio_port: int = Field(default=9000, description="Target MinIO S3 API port")
     minio_access_key: Optional[str] = Field(default="ragai_admin", description="Target MinIO access key")
     minio_secret_key: Optional[str] = Field(default=None, description="Target MinIO secret key")
+    minio_user: Optional[str] = Field(default=None, description="Alias for minio_access_key")
+    minio_password: Optional[str] = Field(default=None, description="Alias for minio_secret_key")
+
+    def model_post_init(self, __context):
+        if self.minio_user:
+            self.minio_access_key = self.minio_user
+        if self.minio_password:
+            self.minio_secret_key = self.minio_password
 
     def build_target_db_url(self) -> str:
         return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.host}:{self.postgres_port}/{self.postgres_db}"
@@ -561,6 +569,7 @@ async def get_source_status():
 
     return {
         "host": settings.VECTOR_STORE_HOST,
+        "source_host": settings.VECTOR_STORE_HOST,
         "database_url": settings.DATABASE_URL.split("@")[-1] if "@" in settings.DATABASE_URL else settings.DATABASE_URL,
         "vector_store_host": settings.VECTOR_STORE_HOST,
         "vector_store_port": settings.VECTOR_STORE_PORT,
@@ -569,8 +578,11 @@ async def get_source_status():
         "object_storage_endpoint": settings.OBJECT_STORAGE_ENDPOINT,
         "counts": counts,
         "total_db_rows": total_db_rows,
+        "total_rows": total_db_rows,
         "total_vectors": total_vectors,
+        "qdrant_points_count": total_vectors,
         "can_rollback": can_rollback,
+        "rollback_available": can_rollback,
         "rollback_host": rollback_host,
     }
 

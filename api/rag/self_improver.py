@@ -32,8 +32,8 @@ DEFAULT_SYSTEM_RULES = [
     "If the context does not contain sufficient information to answer an academic question, state politely in the user's language:\n- English: 'I do not have sufficient verified course material to answer this question. Please refer to your faculty or syllabus.'\n- Hindi / Hinglish: 'मेरे पास इस प्रश्न का उत्तर देने के लिए पर्याप्त सत्यापित विश्वविद्यालय सामग्री उपलब्ध नहीं है। कृपया अपने संबंधित विभाग, संकाय (Faculty) या सिलेबस का संदर्भ लें।'",
     "Never mention internal software development plans, requirements planning, document ingestion pipelines, administrative dashboards, or technical code to the user. You are an academic assistant communicating with university students.",
     "UNIVERSITY LEADERSHIP & ACRONYM GROUNDING (MDU ROHTAK): 'VC' or 'Vice-Chancellor' refers to Prof. Milap Punia (former VCs include Prof. Som Nath Sachdeva and Prof. Rajbir Singh); 'Chancellor' refers to His Excellency Prof. Ashim Kumar Ghosh, Governor of Haryana; 'Registrar' refers to Prof. Sandeep Bansal; 'Director UCC' or 'Director of University Computer Centre' refers to Prof. Yudhvir Singh (Email: dir.ucc@mdurohtak.ac.in, Phone: 01262-293025). 'DDE' stands strictly for 'Directorate of Distance Education' (officially renamed to 'Centre for Distance and Online Education' / CDOE). NEVER interpret DDE as 'Diploma in Engineering' or 'Diploma Examination Department'. 'UIET' is University Institute of Engineering & Technology; 'UTD' is University Teaching Departments; 'UCC' is University Computer Centre.",
-    "STRICT URL & PORTAL INTEGRITY: NEVER fabricate, invent, or guess URLs (e.g. do NOT invent 'mdu.ac.in/Admissions' or 'mdu.ac.in/DDE'). Only output exact URLs that exist verbatim in the retrieved citations or verified portal domains: Main Portal: https://mdu.ac.in, Admissions Portal: https://admission.mdu.ac.in, Student Portal: https://student.mdu.ac.in, Distance Education Samarth: https://ddemduadm.samarth.edu.in.",
-    "Provide a complete, fully formed answer. Always finish your thoughts, sentences, and lists cleanly without cutting off abruptly."
+    "Provide a complete, fully formed answer. Always finish your thoughts, sentences, and lists cleanly without cutting off abruptly.",
+    "MDU EXAMINATION DATESHEET & CONDUCT ARCHITECTURE: When asked about examination datesheets, timings, or schedules (e.g. for BCA, B.Tech, MCA, B.Sc, BA, MBA, etc.):\n- Explain that MDU does NOT issue a single combined datesheet for distinct degree programs (such as BCA and B.Tech together); each degree and semester has its own separate datesheet.\n- University examinations at MDU follow a central academic calendar managed exclusively by the Controller of Examinations (COE) / Conduct Branch:\n  * Odd Semesters (1st, 3rd, 5th, 7th Semesters): Examinations are held in December – January (datesheets released around November).\n  * Even Semesters (2nd, 4th, 6th, 8th Semesters): Examinations are held in May – June (datesheets released around April/May).\n  * Special Chance & Mercy Chance Examinations: Conducted in September – October (e.g. BCA 5th Sem Special Chance notification in Sept 2026).\n- Direct students to the centralized Conduct Branch Examination Datesheet hub at https://mdu.ac.in/admin/EventPage.aspx?id=2 and Exam Notifications at https://mdu.ac.in/admin/EventPage.aspx?id=1015, or the student portal at https://student.mdu.ac.in / http://preexam.mdurtk.in.\n- Never instruct students to check individual academic department pages for datesheets because datesheets are strictly centralized under the Conduct Branch.\n- Ask the student to specify their exact semester (e.g. 1st, 3rd, 5th) and category (Regular or Re-appear/Special Chance) to find the relevant circular."
 ]
 
 class PromptRuleManager:
@@ -236,7 +236,7 @@ class SelfImprovingRAGEngine:
 
             try:
                 # Fast evaluation via llm_router
-                res = await llm_router.generate_response(messages=messages, temperature=0.1)
+                res = await llm_router.generate_response(messages=messages, temperature=0.1, max_tokens=150)
                 ans = res.get("choices", [{}])[0].get("message", {}).get("content", "").lower()
 
                 has_must = all(m in ans for m in case["must_contain"])
@@ -260,4 +260,119 @@ class SelfImprovingRAGEngine:
         score_pct = (passed / total) * 100.0 if total > 0 else 0.0
         return score_pct, details
 
+    async def harvest_conversation_failures(
+        self,
+        min_confidence: float = 0.75,
+        limit: int = 15
+    ) -> List[Dict[str, Any]]:
+        """
+        Harvests real student chat queries that produced low confidence,
+        INCORRECT CRAG decisions, or explicit negative student feedback (thumbs-down).
+        """
+        from db.session import async_session_factory
+        from db.models import ChatMessage, ChatSession
+        from sqlalchemy import select, or_, and_, desc
+
+        failures = []
+        try:
+            async with async_session_factory() as session:
+                # Find assistant messages with negative feedback or low confidence or incorrect CRAG
+                stmt = (
+                    select(ChatMessage)
+                    .where(
+                        and_(
+                            ChatMessage.sender == "assistant",
+                            or_(
+                                ChatMessage.feedback == "down",
+                                ChatMessage.confidence < min_confidence,
+                                ChatMessage.crag_decision == "INCORRECT",
+                            )
+                        )
+                    )
+                    .order_by(desc(ChatMessage.created_at))
+                    .limit(limit)
+                )
+                bad_assistant_msgs = (await session.execute(stmt)).scalars().all()
+
+                for msg in bad_assistant_msgs:
+                    # Find the corresponding user question in the same session prior to this message
+                    user_stmt = (
+                        select(ChatMessage)
+                        .where(
+                            and_(
+                                ChatMessage.session_id == msg.session_id,
+                                ChatMessage.sender == "user",
+                                ChatMessage.created_at <= msg.created_at
+                            )
+                        )
+                        .order_by(desc(ChatMessage.created_at))
+                        .limit(1)
+                    )
+                    user_msg = (await session.execute(user_stmt)).scalars().first()
+
+                    if user_msg and user_msg.content:
+                        reason = "negative_feedback" if msg.feedback == "down" else (
+                            "crag_incorrect" if msg.crag_decision == "INCORRECT" else "low_confidence"
+                        )
+                        failures.append({
+                            "session_id": msg.session_id,
+                            "query": user_msg.content,
+                            "assistant_response": msg.content[:200],
+                            "confidence": msg.confidence,
+                            "crag_decision": msg.crag_decision,
+                            "feedback": msg.feedback,
+                            "feedback_reason": msg.feedback_reason,
+                            "failure_type": reason,
+                            "timestamp": msg.created_at.isoformat() if msg.created_at else None
+                        })
+        except Exception as e:
+            logger.warning(f"Error harvesting conversation failures: {e}")
+
+        return failures
+
+    async def run_optimization_from_conversations(self) -> Dict[str, Any]:
+        """
+        Extracts real failure patterns from stored student conversations and
+        runs a targeted Karpathy prompt optimization cycle.
+        """
+        harvested = await self.harvest_conversation_failures(limit=20)
+        if not harvested:
+            # Fallback to standard optimization cycle
+            return await self.run_optimization_cycle(
+                strategy="refine_rule",
+                suggested_rule="Provide complete, direct answers with verified facts and clear paragraph separation for maximum academic clarity."
+            )
+
+        # Analyze failure patterns across queries
+        all_queries = " ".join([h["query"].lower() for h in harvested])
+        suggested_rule = None
+        strategy = "add_constraint"
+
+        if "exam" in all_queries or "datesheet" in all_queries or "schedule" in all_queries:
+            suggested_rule = (
+                "For all examination, datesheet, or timing queries, clearly specify that candidates must verify their official admit card and report 30 minutes prior to shift commencement."
+            )
+        elif "admission" in all_queries or "apply" in all_queries or "form" in all_queries or "eligibility" in all_queries:
+            suggested_rule = (
+                "For admission and eligibility queries, structure requirements into clear bullet points with minimum qualifying percentages and official portal URLs."
+            )
+        elif "fee" in all_queries or "hostel" in all_queries or "scholarship" in all_queries:
+            suggested_rule = (
+                "When answering fee, hostel, or scholarship questions, explicitly state applicable academic sessions and instruct students to consult the respective department office."
+            )
+        elif any(h.get("feedback") == "down" for h in harvested):
+            suggested_rule = (
+                "Ensure every response directly and concisely answers the user's exact question first before elaborating with supporting context or related guidelines."
+            )
+        else:
+            suggested_rule = (
+                "Maintain high precision and academic rigor: always state specific course titles, department designations, and official deadlines without vagueness."
+            )
+
+        res = await self.run_optimization_cycle(strategy=strategy, suggested_rule=suggested_rule)
+        res["harvested_count"] = len(harvested)
+        res["sample_queries"] = [h["query"] for h in harvested[:3]]
+        return res
+
 self_improver = SelfImprovingRAGEngine()
+

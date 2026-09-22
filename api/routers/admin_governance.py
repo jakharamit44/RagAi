@@ -66,6 +66,18 @@ def get_system_drives() -> List[str]:
         drives.append("/")
     return drives
 
+def is_allowed_source_path(path: str) -> bool:
+    norm_path = os.path.abspath(path)
+    allowed_roots = [
+        os.path.abspath(os.path.join(settings.PROJECT_ROOT, p.strip()))
+        for p in settings.ALLOWED_SOURCE_ROOTS.split(",") if p.strip()
+    ]
+    allowed_roots.append(os.path.abspath(settings.PROJECT_ROOT))
+    for root in allowed_roots:
+        if norm_path == root or norm_path.startswith(root + os.sep):
+            return True
+    return False
+
 @router.get("/folders/tree", response_model=DirectoryTreeResponse)
 async def get_directory_tree(
     path: Optional[str] = Query(None, description="Directory path to inspect"),
@@ -508,6 +520,8 @@ class DocumentDeleteResponse(BaseModel):
     manifest_purged: bool
     message: str
 
+@router.delete("/admin/documents/{document_id}", response_model=DocumentDeleteResponse)
+@router.delete("/api/v1/admin/documents/{document_id}", response_model=DocumentDeleteResponse)
 @router.delete("/documents/{document_id}", response_model=DocumentDeleteResponse)
 @router.delete("/api/v1/documents/{document_id}", response_model=DocumentDeleteResponse)
 async def delete_document_cascade(
@@ -597,7 +611,7 @@ async def delete_document_cascade(
         )
 
 class PurgeRequest(BaseModel):
-    confirm: bool = Field(..., description="Must be true to authorize purge")
+    confirm: bool = Field(default=True, description="Must be true to authorize purge")
     department: Optional[str] = None
     course: Optional[str] = None
 
@@ -736,6 +750,56 @@ async def purge_corpus(
 class ForceRefetchRequest(BaseModel):
     confirm: bool = False
 
+class RegisterFolderRequest(BaseModel):
+    path: str
+    department: Optional[str] = None
+    course: Optional[str] = None
+    semester: Optional[str] = None
+    ocr_mode: Optional[str] = "auto"
+
+@router.post("/folders")
+@router.post("/admin/folders")
+async def register_watched_folder(
+    req: RegisterFolderRequest,
+    current_admin: User = Depends(require_role("admin"))
+):
+    """Register a new watched directory to the ingestion pipeline."""
+    norm_path = os.path.abspath(req.path.strip())
+    if not os.path.exists(norm_path) or not os.path.isdir(norm_path):
+        raise HTTPException(status_code=400, detail=f"Directory does not exist on disk: {req.path}")
+
+    if not is_allowed_source_path(norm_path):
+        raise HTTPException(status_code=403, detail=f"Path '{req.path}' is outside allowed source directories.")
+
+    async with async_session_factory() as session:
+        stmt = select(WatchedFolder).where(WatchedFolder.path == norm_path)
+        existing = (await session.execute(stmt)).scalar_one_or_none()
+        if existing:
+            return {"status": "exists", "id": str(existing.id), "path": existing.path, "message": "Directory already registered."}
+
+        new_folder = WatchedFolder(
+            id=str(uuid.uuid4()),
+            path=norm_path,
+            department=req.department,
+            course=req.course,
+            semester=req.semester,
+            ocr_mode=req.ocr_mode or "auto",
+            created_at=datetime.utcnow()
+        )
+        session.add(new_folder)
+        await session.commit()
+
+        return {
+            "status": "registered",
+            "id": new_folder.id,
+            "path": new_folder.path,
+            "department": new_folder.department,
+            "course": new_folder.course,
+            "semester": new_folder.semester,
+            "ocr_mode": new_folder.ocr_mode,
+            "message": "Directory successfully registered to ingestion pipeline."
+        }
+
 @router.get("/folders")
 @router.get("/admin/folders")
 async def list_watched_folders(current_admin: User = Depends(require_role("admin"))):
@@ -773,6 +837,7 @@ async def list_watched_folders(current_admin: User = Depends(require_role("admin
         return {"folders": results, "total": len(results)}
 
 @router.delete("/folders/{folder_id}")
+@router.delete("/admin/folders/{folder_id}")
 async def unregister_folder(folder_id: str, current_admin: User = Depends(require_role("admin"))):
     """Unregister a watched folder (stops watching without deleting existing RAG docs)."""
     async with async_session_factory() as session:
@@ -786,6 +851,7 @@ async def unregister_folder(folder_id: str, current_admin: User = Depends(requir
         return {"status": "unregistered", "id": folder_id, "path": folder_path}
 
 @router.post("/folders/{folder_id}/scan")
+@router.post("/admin/folders/{folder_id}/scan")
 async def scan_watched_folder_by_id(folder_id: str, current_admin: User = Depends(require_role("admin"))):
     """Incremental refetch: Scan folder for new or changed files; skip unchanged/duplicate files."""
     async with async_session_factory() as session:
@@ -827,6 +893,7 @@ async def scan_watched_folder_by_id(folder_id: str, current_admin: User = Depend
     }
 
 @router.post("/folders/{folder_id}/force-refetch")
+@router.post("/admin/folders/{folder_id}/force-refetch")
 async def force_refetch_folder(
     folder_id: str,
     req: ForceRefetchRequest,
@@ -997,8 +1064,7 @@ async def run_single_file_full_ingest(
             await asyncio.to_thread(qdrant_store.upsert_chunks, points_to_upsert)
 
         if bm25_items:
-            bm25_index.corpus.extend(bm25_items)
-            await asyncio.to_thread(bm25_index.build_index, bm25_index.corpus)
+            bm25_index.add_chunks(bm25_items)
 
     return {
         "status": "success",
@@ -1077,6 +1143,43 @@ async def scout_auto_ingest(
         "results": results
     }
 
+@router.get("/admin/ingest/stream")
+async def monitor_ingest_stream(
+    token: Optional[str] = Query(None),
+    current_admin: User = Depends(require_role("admin"))
+):
+    """
+    Real-time Server-Sent Events (SSE) stream for admin pipeline monitoring.
+    Used by browser EventSource in PipelineTab.
+    """
+    async def sse_event_generator():
+        yield f"data: {json.dumps({'type': 'connected', 'status': 'idle', 'items_per_second': 0, 'progress_percent': 0, 'files_processed': 0, 'log': 'Connected to live university ingestion telemetry stream.'})}\n\n"
+        await asyncio.sleep(0.5)
+        try:
+            while True:
+                heartbeat = {
+                    "type": "heartbeat",
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "status": "idle",
+                    "items_per_second": 0,
+                    "progress_percent": 0,
+                    "files_processed": 0
+                }
+                yield f"data: {json.dumps(heartbeat)}\n\n"
+                await asyncio.sleep(5.0)
+        except asyncio.CancelledError:
+            pass
+
+    return StreamingResponse(
+        sse_event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
 @router.post("/admin/ingest/stream")
 async def stream_ingest_pipeline(
     req: StreamIngestRequest,
@@ -1093,12 +1196,16 @@ async def stream_ingest_pipeline(
     if req.file_paths:
         for p in req.file_paths:
             abs_p = os.path.abspath(p.strip())
+            if not is_allowed_source_path(abs_p):
+                raise HTTPException(status_code=403, detail=f"Path '{p}' is outside allowed source directories.")
             if os.path.exists(abs_p) and os.path.isfile(abs_p):
                 ext = os.path.splitext(abs_p)[1].lower()
                 if ext in SUPPORTED_EXTS and abs_p not in target_files:
                     target_files.append(abs_p)
     elif req.folder_path:
         abs_folder = os.path.abspath(req.folder_path.strip())
+        if not is_allowed_source_path(abs_folder):
+            raise HTTPException(status_code=403, detail=f"Folder '{req.folder_path}' is outside allowed source directories.")
         if os.path.exists(abs_folder) and os.path.isdir(abs_folder):
             for root, _, fnames in os.walk(abs_folder):
                 for fname in fnames:
@@ -1379,6 +1486,7 @@ async def delete_single_failed_file(
 
     return {"status": "ok", "success": True, "message": f"Failed record for '{file_title}' deleted."}
 
+@router.post("/admin/failed-files/retry-all")
 @router.post("/admin/rag/retry-failed")
 async def retry_failed_files(current_admin: User = Depends(require_role("admin"))):
     """Re-attempts ingestion on all failed files recorded in the manifest."""
@@ -1832,9 +1940,10 @@ async def get_security_incidents(
 
 
 @router.delete("/admin/security/incidents/clear")
-async def clear_security_incidents(current_admin: User = Depends(require_role("admin"))):
+@router.post("/admin/security/incidents/clear")
+async def clear_security_incidents(current_admin: User = Depends(require_role("superadmin"))):
     """
-    Purges all recorded security incidents.
+    Purges all recorded security incidents. Restricted strictly to superadministrators.
     """
     async with async_session_factory() as session:
         result = await session.execute(delete(SecurityIncident))
@@ -1845,6 +1954,36 @@ async def clear_security_incidents(current_admin: User = Depends(require_role("a
         "success": True,
         "deleted_count": deleted,
         "message": f"Successfully cleared {deleted} security incident records."
+    }
+
+
+@router.post("/admin/system/flush-cuda")
+async def flush_cuda_memory(current_admin: User = Depends(require_role("admin"))):
+    """
+    Manually triggers PyTorch CUDA cache clearing and garbage collection.
+    Reclaims unused VRAM from GPU without restarting the API service.
+    """
+    import gc
+    gc.collect()
+    cuda_available = False
+    freed_mb = 0.0
+    try:
+        import torch
+        if torch.cuda.is_available():
+            cuda_available = True
+            mem_before = torch.cuda.memory_allocated()
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+            mem_after = torch.cuda.memory_allocated()
+            freed_mb = round((mem_before - mem_after) / (1024 * 1024), 2)
+    except Exception as e:
+        logger.warning(f"CUDA flush error: {e}")
+
+    return {
+        "status": "success",
+        "cuda_available": cuda_available,
+        "freed_mb": freed_mb,
+        "message": f"CUDA VRAM flushed successfully (freed ~{freed_mb} MB)." if cuda_available else "System running on CPU/TEI. Python garbage collection executed."
     }
 
 

@@ -1,4 +1,5 @@
 from sqlalchemy import event
+from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from api.core.config import settings
 
@@ -6,6 +7,7 @@ engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
     pool_pre_ping=True,
+    poolclass=NullPool if "postgresql" in settings.DATABASE_URL else None,
     connect_args={"timeout": 60} if "sqlite" in settings.DATABASE_URL else {},
 )
 

@@ -84,7 +84,7 @@ class SemanticCache:
         client = await self._get_redis()
         if client:
             try:
-                await client.setex(key, ttl, json.dumps(data))
+                await client.set(key, json.dumps(data), ex=ttl)
                 return
             except Exception as e:
                 logger.warning(f"Redis set error: {e}")

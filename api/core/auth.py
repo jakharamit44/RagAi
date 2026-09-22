@@ -2,7 +2,7 @@ import time
 import hashlib
 import secrets
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 import jwt
 from fastapi import Depends, HTTPException, Security, Request, status
@@ -33,8 +33,8 @@ _JWT_USER_CACHE: Dict[str, User] = {}
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """Create signed JWT access token (Phase 11 & Table 27)."""
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.JWT_ACCESS_TOKEN_TTL_MINUTES))
-    to_encode.update({"exp": expire, "iat": datetime.utcnow()})
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.JWT_ACCESS_TOKEN_TTL_MINUTES))
+    to_encode.update({"exp": expire, "iat": datetime.now(timezone.utc)})
     return jwt.encode(to_encode, settings.JWT_SIGNING_KEY, algorithm=ALGORITHM)
 
 def decode_token(token: str) -> Dict[str, Any]:
@@ -107,7 +107,7 @@ async def verify_api_key(raw_key: str) -> Optional[User]:
                 detail={"error": {"code": "api_key_disabled", "message": "API Key is currently disabled. Contact administrator."}}
             )
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         if api_key_rec.expires_at and api_key_rec.expires_at < now:
             record_security_incident_bg(
                 event_type="AUTH_FAILURE",
@@ -166,9 +166,14 @@ async def get_current_user(
             detail={"error": {"code": "unauthorized", "message": "Invalid API Key"}}
         )
 
-    # 2. Try Bearer token
+    # 2. Try Bearer token (Header or query parameter for EventSource/SSE streams)
+    raw_bearer = None
     if credentials and credentials.credentials:
         raw_bearer = credentials.credentials
+    elif request.query_params.get("token"):
+        raw_bearer = request.query_params.get("token")
+
+    if raw_bearer:
 
         # If bearer token is an API key prefix
         if raw_bearer.startswith("rag_") or raw_bearer == settings.API_KEY:
@@ -232,12 +237,10 @@ async def get_current_user(
             except HTTPException:
                 raise
             except Exception as e:
-                logger.warning(f"Database contention during admin auth lookup for {external_id}: {e}")
-                # Verified cryptographic claims fallback
-                return User(
-                    external_id=external_id,
-                    role=payload.get("role", "admin"),
-                    department=None
+                logger.error(f"Database error during admin auth lookup for {external_id}: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={"error": {"code": "auth_db_unavailable", "message": "Authentication database temporarily unavailable. Please retry."}}
                 )
 
         # Fast in-memory cache lookup to avoid SQLite lock contention during active ingestion

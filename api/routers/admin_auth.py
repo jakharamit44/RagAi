@@ -16,6 +16,7 @@ Provides:
 import os
 import re
 import uuid
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
@@ -26,6 +27,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.config import settings
+from api.core.rate_limiter import rate_limiter
 from api.core.passwords import (
     hash_password,
     verify_password,
@@ -91,6 +93,15 @@ class UpdateStatusRequest(BaseModel):
     is_active: bool
 
 
+class UpdateAdminUserRequest(BaseModel):
+    full_name: Optional[str] = Field(None, max_length=100)
+    email: Optional[str] = Field(None, description="Valid email address")
+    role: Optional[str] = Field(None, description="Role: superadmin, admin, or auditor")
+    password: Optional[str] = Field(None, min_length=8, description="Optional new password")
+    is_active: Optional[bool] = None
+
+
+
 # -----------------------------------------------------------------------------
 # AUTO-SEEDING INITIAL ADMIN
 # -----------------------------------------------------------------------------
@@ -140,6 +151,25 @@ async def admin_login(
     Audits success and failure events.
     """
     client_ip = request.client.host if request.client else "127.0.0.1"
+
+    # 1. Rate limiting check (max 10 login attempts per minute per IP)
+    try:
+        rate_limiter.check_rate_limit(f"admin_login_ip:{client_ip}", limit=10)
+    except HTTPException:
+        record_security_incident_bg(
+            event_type="BRUTE_FORCE_SUSPECTED",
+            severity="HIGH",
+            client_ip=client_ip,
+            user_identifier=req.username,
+            endpoint=request.url.path,
+            detail=f"Rate limit exceeded for admin login attempts from IP {client_ip}.",
+            action_taken="RATE_LIMITED",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"error": {"code": "rate_limit_exceeded", "message": "Too many failed login attempts. Please wait a minute before retrying."}},
+        )
+
     clean_identifier = req.username.strip().lower()
 
     # Query admin user by username or email (case-insensitive)
@@ -181,7 +211,9 @@ async def admin_login(
             detail={"error": {"code": "account_disabled", "message": "This administrator account is currently deactivated."}},
         )
 
-    if not verify_password(req.password, admin_user.password_hash):
+    # Offload CPU-heavy PBKDF2/bcrypt hashing off the main event loop
+    is_valid_pw = await asyncio.to_thread(verify_password, req.password, admin_user.password_hash)
+    if not is_valid_pw:
         record_security_incident_bg(
             event_type="AUTH_FAILURE",
             severity="HIGH",
@@ -496,9 +528,152 @@ async def toggle_admin_user_status(
             detail={"error": {"code": "self_deactivation", "message": "You cannot deactivate your own administrator account."}},
         )
 
+    if target.role == "superadmin" and current_user.role != "superadmin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": {"code": "permission_denied", "message": "Only superadministrators can modify superadmin accounts."}},
+        )
+
+    if target.role == "superadmin" and not req.is_active:
+        count_super_stmt = select(func.count(AdminUser.id)).where(AdminUser.role == "superadmin", AdminUser.is_active == True)
+        super_count = (await db_session.execute(count_super_stmt)).scalar() or 0
+        if super_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": {"code": "last_superadmin", "message": "Cannot deactivate the only active superadmin account."}},
+            )
+
     target.is_active = req.is_active
     target.updated_at = datetime.utcnow()
     await db_session.commit()
+
+    return AdminUserResponse(
+        id=str(target.id),
+        username=target.username,
+        email=target.email,
+        full_name=target.full_name,
+        role=target.role,
+        is_active=target.is_active,
+        must_change_password=target.must_change_password,
+        created_at=target.created_at.isoformat(),
+        last_login_at=target.last_login_at.isoformat() if target.last_login_at else None,
+    )
+
+
+@router.put("/users/{user_id}", response_model=AdminUserResponse)
+@router.patch("/users/{user_id}", response_model=AdminUserResponse)
+@router.post("/users/{user_id}", response_model=AdminUserResponse)
+async def update_admin_user(
+    user_id: str,
+    req: UpdateAdminUserRequest,
+    request: Request,
+    current_user: User = Depends(require_role("admin")),
+    db_session: AsyncSession = Depends(get_db),
+):
+    """
+    Updates administrator account details (Full Name, Email, Role, Password, Active status).
+    """
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": {"code": "invalid_id", "message": "Invalid user ID format."}},
+        )
+
+    stmt = select(AdminUser).where(AdminUser.id == uid)
+    target = (await db_session.execute(stmt)).scalar_one_or_none()
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "not_found", "message": "Administrator account not found."}},
+        )
+
+    # 1. Update Full Name
+    if req.full_name is not None:
+        target.full_name = req.full_name.strip() if req.full_name.strip() else None
+
+    # 2. Update Email
+    if req.email and req.email.strip():
+        clean_email = req.email.strip().lower()
+        if not re.match(r"^[^@]+@[^@]+\.[^@]+$", clean_email):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": {"code": "invalid_email", "message": "Please enter a valid email address."}},
+            )
+        # Check uniqueness if changed
+        if clean_email != target.email.lower():
+            dup_stmt = select(AdminUser).where(func.lower(AdminUser.email) == clean_email, AdminUser.id != uid)
+            if (await db_session.execute(dup_stmt)).scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={"error": {"code": "conflict", "message": "Another administrator account is already registered with this email address."}},
+                )
+            target.email = clean_email
+
+    # 3. Update Role
+    if req.role:
+        if req.role not in ("superadmin", "admin", "auditor"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": {"code": "invalid_role", "message": "Role must be 'superadmin', 'admin', or 'auditor'."}},
+            )
+        if (req.role == "superadmin" or target.role == "superadmin") and current_user.role != "superadmin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": {"code": "permission_denied", "message": "Only superadministrators can grant or revoke superadmin privileges."}},
+            )
+        # Prevent demoting the last superadmin
+        if target.role == "superadmin" and req.role != "superadmin":
+            count_super_stmt = select(func.count(AdminUser.id)).where(AdminUser.role == "superadmin", AdminUser.is_active == True)
+            super_count = (await db_session.execute(count_super_stmt)).scalar() or 0
+            if super_count <= 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error": {"code": "last_superadmin", "message": "Cannot demote the only active superadmin account."}},
+                )
+        target.role = req.role
+
+    # 4. Optional Password Reset
+    if req.password and req.password.strip():
+        is_strong, reason = validate_password_strength(req.password.strip())
+        if not is_strong:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": {"code": "weak_password", "message": reason}},
+            )
+        target.password_hash = hash_password(req.password.strip())
+        target.must_change_password = False
+
+    # 5. Update Status
+    if req.is_active is not None:
+        if target.username == current_user.external_id and not req.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": {"code": "self_deactivation", "message": "You cannot deactivate your own administrator account."}},
+            )
+        if target.role == "superadmin" and not req.is_active:
+            count_super_stmt = select(func.count(AdminUser.id)).where(AdminUser.role == "superadmin", AdminUser.is_active == True)
+            super_count = (await db_session.execute(count_super_stmt)).scalar() or 0
+            if super_count <= 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error": {"code": "last_superadmin", "message": "Cannot deactivate the only active superadmin account."}},
+                )
+        target.is_active = req.is_active
+
+    target.updated_at = datetime.utcnow()
+    await db_session.commit()
+
+    record_security_incident_bg(
+        event_type="ADMIN_USER_UPDATED",
+        severity="LOW",
+        client_ip=request.client.host if request.client else "127.0.0.1",
+        user_identifier=current_user.external_id,
+        endpoint=request.url.path,
+        detail=f"Administrator '{target.username}' details updated by '{current_user.external_id}'.",
+        action_taken="ALLOWED",
+    )
 
     return AdminUserResponse(
         id=str(target.id),
@@ -544,6 +719,12 @@ async def delete_admin_user(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": {"code": "self_deletion", "message": "You cannot delete your own administrator account."}},
+        )
+
+    if target.role == "superadmin" and current_user.role != "superadmin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": {"code": "permission_denied", "message": "Only superadministrators can delete superadmin accounts."}},
         )
 
     if target.role == "superadmin":

@@ -130,10 +130,18 @@ export default function LoginView() {
           </form>
 
           <div className="mt-6 pt-5 border-t border-[#EAEAEA] text-center">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-pastel-yellow/60 border border-[#FFEBAA] rounded-full text-[11px] text-pastel-yellowText font-medium">
+            <button
+              type="button"
+              onClick={() => {
+                setUsername('admin');
+                setPassword('Admin@MDU2026!');
+              }}
+              title="Click to fill default administrator credentials"
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-pastel-yellow/60 hover:bg-pastel-yellow border border-[#FFEBAA] rounded-full text-[11px] text-pastel-yellowText font-medium transition cursor-pointer"
+            >
               <span>Default Initial Setup:</span>
               <code className="font-bold">admin / Admin@MDU2026!</code>
-            </div>
+            </button>
           </div>
         </div>
 

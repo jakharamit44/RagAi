@@ -267,8 +267,24 @@ class BrainGraphEngine:
                 if dept_id in node_ids:
                     add_link(dept_id, concept_node_id, "regulates", 0.8)
 
-        # 5. Level 5: Verified Documents
+        # 5. Level 5: Representative Documents (Balanced across departments)
+        docs_by_dept: Dict[str, List[Any]] = {}
         for doc in docs:
+            raw_dept = doc.department or "General"
+            if "computer" in raw_dept.lower():
+                raw_dept = "Computer Science"
+            elif raw_dept in ("d:", "data", "None", ""):
+                raw_dept = "General"
+            docs_by_dept.setdefault(raw_dept, []).append(doc)
+
+        sampled_docs = []
+        for dept_k, d_list in docs_by_dept.items():
+            sampled_docs.extend(d_list[:8])
+        if len(sampled_docs) < 45:
+            remaining = [d for d in docs if d not in sampled_docs]
+            sampled_docs.extend(remaining[:45 - len(sampled_docs)])
+
+        for doc in sampled_docs:
             doc_id_short = str(doc.id)[:8]
             doc_node_id = f"doc-{doc_id_short}"
             raw_dept = doc.department or "General"
@@ -277,10 +293,9 @@ class BrainGraphEngine:
             elif raw_dept in ("d:", "data", "None", ""):
                 raw_dept = "General"
 
-            # Format human-readable title
-            clean_title = doc.title
-            if len(clean_title) > 38:
-                clean_title = clean_title[:35] + "..."
+            clean_title = doc.title or "Untitled Document"
+            if len(clean_title) > 35:
+                clean_title = clean_title[:32] + "..."
 
             add_node(
                 n_id=doc_node_id,
@@ -306,22 +321,23 @@ class BrainGraphEngine:
                     add_link(dept_link_id, doc_node_id, "archives_doc", 0.75)
 
             # Link document to matching concepts
-            doc_title_lower = doc.title.lower()
-            if "court" in doc_title_lower:
+            doc_title_lower = (doc.title or "").lower()
+            if "court" in doc_title_lower and "concept-university_court_statutory_p" in node_ids:
                 add_link(doc_node_id, "concept-university_court_statutory_p", "authoritative_source", 0.85)
-            if "academic council" in doc_title_lower:
+            if "academic council" in doc_title_lower and "concept-academic_council_resolutions" in node_ids:
                 add_link(doc_node_id, "concept-academic_council_resolutions", "authoritative_source", 0.85)
-            if "schedule" in doc_title_lower or "datesheet" in doc_title_lower or "exam" in doc_title_lower:
+            if any(k in doc_title_lower for k in ("schedule", "datesheet", "exam")) and "concept-examination_schedules_&_prac" in node_ids:
                 add_link(doc_node_id, "concept-examination_schedules_&_prac", "authoritative_source", 0.85)
-            if "syllabus" in doc_title_lower:
+            if "syllabus" in doc_title_lower and "concept-dynamic_programming_&_optimi" in node_ids:
                 add_link(doc_node_id, "concept-dynamic_programming_&_optimi", "authoritative_source", 0.8)
 
-        # 6. Level 6: Web Scraped Live Resources & Notices
-        for scrape in scrapes:
+        # 6. Level 6: Representative Web Scraped Notices (Recent notices)
+        sampled_scrapes = scrapes[:25]
+        for scrape in sampled_scrapes:
             scrape_node_id = f"scrape-{scrape.id}"
-            title_label = scrape.title or scrape.url
-            if len(title_label) > 38:
-                title_label = title_label[:35] + "..."
+            title_label = scrape.title or scrape.url or "Notice"
+            if len(title_label) > 35:
+                title_label = title_label[:32] + "..."
 
             add_node(
                 n_id=scrape_node_id,
@@ -337,8 +353,10 @@ class BrainGraphEngine:
                     "last_checked": str(scrape.last_checked_at)
                 }
             )
-            add_link("dept-Examination_Branch", scrape_node_id, "broadcasts", 0.85)
-            add_link(scrape_node_id, "concept-examination_schedules_&_prac", "updates_notice", 0.8)
+            if "dept-Examination_Branch" in node_ids:
+                add_link("dept-Examination_Branch", scrape_node_id, "broadcasts", 0.85)
+            if "concept-examination_schedules_&_prac" in node_ids:
+                add_link(scrape_node_id, "concept-examination_schedules_&_prac", "updates_notice", 0.8)
 
         # 7. Cross-Synaptic Cognitive Affinities (Inter-departmental semantic bridges)
         synapses = [
@@ -351,18 +369,25 @@ class BrainGraphEngine:
             ("concept-university_court_statutory_p", "dept-Academic_Council", "governance_coordination", 0.86),
         ]
         for src, tgt, rel, w in synapses:
-            add_link(src, tgt, rel, w)
+            if src in node_ids and tgt in node_ids:
+                add_link(src, tgt, rel, w)
 
         elapsed_ms = round((time.time() - t0) * 1000, 2)
-        logger.info(f"Knowledge Cortex built: {len(nodes)} nodes, {len(links)} synapses in {elapsed_ms}ms.")
+        total_corpus_nodes = 1 + len(known_depts) + len(courses_map) + len(base_concepts) + len(docs) + len(scrapes)
+        total_corpus_links = len(known_depts) + len(courses_map) + len(base_concepts) + len(docs) + (len(scrapes) * 2) + len(synapses)
+
+        logger.info(f"Knowledge Cortex built: {len(nodes)} visual nodes ({total_corpus_nodes} total), {len(links)} visual synapses in {elapsed_ms}ms.")
 
         result = {
             "status": "success",
             "nodes": nodes,
             "links": links,
+            "edges": links,
             "stats": {
-                "total_nodes": len(nodes),
-                "total_links": len(links),
+                "total_nodes": total_corpus_nodes,
+                "total_links": total_corpus_links,
+                "displayed_nodes": len(nodes),
+                "displayed_links": len(links),
                 "departments_count": len(known_depts),
                 "courses_count": len(courses_map),
                 "concepts_count": len(base_concepts),
@@ -392,14 +417,18 @@ class BrainGraphEngine:
             if src in active_node_ids and tgt in active_node_ids:
                 active_links.append(l)
 
+        base_stats = full_graph.get("stats", {})
         return {
             "status": "success",
             "department": department,
             "nodes": active_nodes,
             "links": active_links,
+            "edges": active_links,
             "stats": {
-                "total_nodes": len(active_nodes),
-                "total_links": len(active_links),
+                "total_nodes": base_stats.get("total_nodes", len(active_nodes)),
+                "total_links": base_stats.get("total_links", len(active_links)),
+                "displayed_nodes": len(active_nodes),
+                "displayed_links": len(active_links),
                 "filtered": True
             }
         }

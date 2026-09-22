@@ -1,0 +1,15 @@
+# ai-memory marker configuration for RagAi
+workspace = "default"
+project = "ragai"
+project_strategy = "repo-root"
+
+[briefing]
+inject_on_session_start = "true"
+
+[capture]
+ignore_paths = [
+    "**/.env*",
+    "**/node_modules/**",
+    "**/venv/**",
+    "**/.git/**"
+]

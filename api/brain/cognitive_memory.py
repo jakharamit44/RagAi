@@ -61,9 +61,12 @@ class CognitiveMemoryManager:
         now = time.time()
         uptime_seconds = round(now - self._start_time, 1)
 
-        # 1. Fetch Episodic Memory Metrics from SQLite QueryAuditLog
+        # 1. Fetch Episodic Memory Metrics from SQLite QueryAuditLog, ChatSession, and ChatMessage
+        from db.models import ChatSession, ChatMessage
         async with async_session_factory() as session:
             total_queries = (await session.execute(select(func.count(QueryAuditLog.id)))).scalar() or 0
+            total_chat_sessions = (await session.execute(select(func.count(ChatSession.id)))).scalar() or 0
+            total_chat_messages = (await session.execute(select(func.count(ChatMessage.id)))).scalar() or 0
             
             # Recent audit entries
             recent_audits = (
@@ -120,6 +123,8 @@ class CognitiveMemoryManager:
                 },
                 "episodic": {
                     "total_recorded_queries": total_queries,
+                    "total_chat_sessions": total_chat_sessions,
+                    "total_chat_messages": total_chat_messages,
                     "recent_sample_size": sample_size,
                     "verified_coherence_pct": coherence_score,
                     "abstention_rate_pct": round((abstained_count / max(1, sample_size)) * 100, 1),

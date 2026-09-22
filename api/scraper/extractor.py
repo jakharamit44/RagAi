@@ -116,7 +116,7 @@ class PageExtractor:
                     if crumbs:
                         title = " - ".join(crumbs[-2:]) + " | MDU Rohtak"
 
-                if not title or title.lower().strip() in ["m.d university", "mdu rohtak"]:
+                if not title or title.lower().strip() in ["m.d university", "mdu rohtak", "subscribe to alerts", "subscribe to alerts | mdu rohtak"]:
                     if "officers.aspx" in page_url.lower():
                         if "oid=1" in page_url.lower():
                             title = "Vice-Chancellor Office - Prof. Milap Punia | MDU Rohtak"
@@ -128,6 +128,16 @@ class PageExtractor:
                             title = "Dean Academic Affairs | MDU Rohtak"
                         else:
                             title = "University Officers & Deans | MDU Rohtak"
+                    elif "eventpage.aspx?id=2" in page_url.lower():
+                        title = "Examination Datesheet | MDU Rohtak"
+                    elif "eventpage.aspx?id=1015" in page_url.lower():
+                        title = "Exam Notifications & Amendments | MDU Rohtak"
+                    elif "eventpage.aspx?id=1018" in page_url.lower():
+                        title = "Examination Schedule | MDU Rohtak"
+                    elif "eventpage.aspx?id=1019" in page_url.lower():
+                        title = "Exam Question Papers | MDU Rohtak"
+                    elif "eventpage.aspx?id=1079" in page_url.lower():
+                        title = "Important Key Dates for Admission and Notices | MDU Rohtak"
                     elif "dept=43" in page_url.lower():
                         title = "Centre for Distance and Online Education (CDOE / DDE) | MDU Rohtak"
                     elif "dept=44" in page_url.lower() or (dept_name_str and "computer centre" in dept_name_str.lower()):
@@ -148,12 +158,49 @@ class PageExtractor:
                             if h1 and h1.get_text(strip=True):
                                 title = f"{h1.get_text(strip=True)} | MDU Rohtak"
 
-            # (b) Helper for markdown table conversion
+            # (b) Helper for markdown table conversion with full hyperlink retention
+            def _is_calendar_or_nav_table(tbl) -> bool:
+                tbl_id = (tbl.get("id") or "").lower()
+                tbl_class = " ".join(tbl.get("class", [])).lower()
+                if any(k in tbl_id or k in tbl_class for k in ["calendar", "datepicker", "dxecalendar", "dxcalendar", "radcalendar", "rcmaintable", "dxm-", "radmenu"]):
+                    return True
+                # Skip DevExpress filter row editors, popups, and dropdown lists
+                if any(k in tbl_id or k in tbl_class for k in ["dxfreditor", "_ddd_c", "_ddd_l", "dxgvloadingpanel", "dxse"]):
+                    return True
+                tbl_text = tbl.get_text(separator=" ", strip=True).lower()
+                if "sun mon tue wed thu fri sat" in tbl_text:
+                    return True
+                if "jan feb mar apr may jun jul aug sep oct nov dec" in tbl_text and "loading" in tbl_text:
+                    return True
+                return False
+
+            def _cell_to_markdown(cell, base_url: str) -> str:
+                """Converts a table cell to markdown, preserving clickable hyperlinks."""
+                links = []
+                for a in cell.find_all("a", href=True):
+                    href = a["href"].strip()
+                    if href and not href.lower().startswith("javascript:"):
+                        full_url = urllib.parse.urljoin(base_url, href)
+                        text = a.get_text(separator=" ", strip=True) or "Download"
+                        links.append(f"[{text}]({full_url})")
+                
+                cell_text = cell.get_text(separator=" ", strip=True).replace("|", "\\|")
+                if links:
+                    # If anchor text is already in cell_text, substitute or append
+                    return " ".join(links) if len(cell_text) < 40 else f"{cell_text} (" + ", ".join(links) + ")"
+                return cell_text
+
             def _table_to_markdown(tbl) -> str:
+                if _is_calendar_or_nav_table(tbl):
+                    return ""
                 rows = []
                 for tr in tbl.find_all("tr"):
-                    cells = [td.get_text(separator=" ", strip=True).replace("|", "\\|") for td in tr.find_all(["th", "td"])]
-                    if any(cells):
+                    # Ignore DevExpress filter row editors
+                    tr_class = " ".join(tr.get("class", [])).lower()
+                    if "dxfreditor" in tr_class or "dxgvfilterrow" in tr_class:
+                        continue
+                    cells = [_cell_to_markdown(td, page_url) for td in tr.find_all(["th", "td"])]
+                    if any(cells) and any(len(c.strip()) > 0 for c in cells):
                         rows.append(cells)
                 if not rows:
                     return ""

@@ -33,6 +33,8 @@ export default function MigrationTab() {
     qdrant_https: false,
     tei_port: 8080,
     minio_port: 9000,
+    minio_access_key: 'minioadmin',
+    minio_secret_key: '9wtbai4u6xHovYkSnl2TVApBI0ZjJMK1',
     minio_user: 'minioadmin',
     minio_password: '9wtbai4u6xHovYkSnl2TVApBI0ZjJMK1',
   });
@@ -90,6 +92,8 @@ export default function MigrationTab() {
       qdrant_https: false,
       tei_port: 8080,
       minio_port: 9000,
+      minio_access_key: 'minioadmin',
+      minio_secret_key: '9wtbai4u6xHovYkSnl2TVApBI0ZjJMK1',
       minio_user: 'minioadmin',
       minio_password: '9wtbai4u6xHovYkSnl2TVApBI0ZjJMK1',
     });
@@ -229,28 +233,28 @@ export default function MigrationTab() {
             <div className="p-4 bg-[#FBFBFA] border border-[#EAEAEA] rounded-xl">
               <div className="text-[11px] font-semibold text-muted uppercase">Active VM Host</div>
               <div className="text-sm font-bold font-mono text-charcoal mt-1">
-                {sourceStatus.source_host}
+                {sourceStatus.source_host || sourceStatus.host || sourceStatus.vector_store_host || '192.168.81.150'}
               </div>
             </div>
 
             <div className="p-4 bg-[#FBFBFA] border border-[#EAEAEA] rounded-xl">
               <div className="text-[11px] font-semibold text-muted uppercase">PostgreSQL Total Rows</div>
               <div className="text-sm font-bold font-mono text-charcoal mt-1">
-                {sourceStatus.total_rows?.toLocaleString() || 0}
+                {(sourceStatus.total_rows || sourceStatus.total_db_rows || 0).toLocaleString()}
               </div>
             </div>
 
             <div className="p-4 bg-[#FBFBFA] border border-[#EAEAEA] rounded-xl">
               <div className="text-[11px] font-semibold text-muted uppercase">Qdrant Vectors</div>
               <div className="text-sm font-bold font-mono text-charcoal mt-1">
-                {sourceStatus.qdrant_points_count?.toLocaleString() || 0}
+                {(sourceStatus.qdrant_points_count || sourceStatus.total_vectors || 0).toLocaleString()}
               </div>
             </div>
 
             <div className="p-4 bg-[#FBFBFA] border border-[#EAEAEA] rounded-xl">
               <div className="text-[11px] font-semibold text-muted uppercase">Rollback Archive</div>
               <div className="text-sm font-bold mt-1">
-                {sourceStatus.rollback_available ? (
+                {sourceStatus.rollback_available || sourceStatus.can_rollback ? (
                   <span className="text-pastel-greenText font-semibold">Available</span>
                 ) : (
                   <span className="text-muted font-normal">None archived</span>

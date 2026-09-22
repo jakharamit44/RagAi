@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "read_file|list_directory",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:/Users/ajak4405/AppData/Roaming/Python/Python314/Scripts/graphify.EXE hook-guard gemini"
+          }
+        ]
+      }
+    ]
+  }
+}

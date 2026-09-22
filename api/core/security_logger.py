@@ -1,7 +1,7 @@
 import re
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 from db.session import async_session_factory
@@ -53,7 +53,7 @@ async def log_security_event(
     try:
         async with async_session_factory() as session:
             incident = SecurityIncident(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc).replace(tzinfo=None),
                 event_type=event_type,
                 severity=severity.upper(),
                 client_ip=client_ip,

@@ -222,11 +222,59 @@ async def get_crawler_status():
             break
         except Exception:
             pass
+
+    stats = dict(crawler.stats) if crawler.stats else {}
+    is_running = crawler.is_running
+    current_job_id = crawler.current_job_id
+    current_url = crawler.current_url or ""
+    job_name = ""
+
+    # Check DB for active or most recent job metadata & stats fallback
+    async with async_session_factory() as session:
+        # Check if there is a running job or the latest configured job
+        stmt = select(WebScrapeJob).order_by(WebScrapeJob.created_at.desc())
+        jobs = (await session.execute(stmt)).scalars().all()
+        
+        running_job = next((j for j in jobs if j.status == "running"), None)
+        target_job = running_job or (jobs[0] if jobs else None)
+
+        if target_job:
+            job_name = target_job.name
+            if not current_job_id:
+                current_job_id = str(target_job.id)
+
+            # If crawler is not running or in-memory stats are blank, fallback to DB stats
+            if not is_running or stats.get("total_urls_visited", 0) == 0:
+                if target_job.stats:
+                    try:
+                        db_stats = json.loads(target_job.stats) if isinstance(target_job.stats, str) else target_job.stats
+                        if isinstance(db_stats, dict) and db_stats.get("total_urls_visited", 0) > 0:
+                            stats = db_stats
+                    except Exception:
+                        pass
+
+            # If activity logs are empty, provide historical summary
+            if not logs and stats.get("total_urls_visited", 0) > 0:
+                timestamp = target_job.last_run_at.strftime("%H:%M:%S") if target_job.last_run_at else "00:00:00"
+                logs = [
+                    {
+                        "timestamp": timestamp,
+                        "level": "info",
+                        "message": f"Checkpoint loaded for '{job_name}': {stats.get('pages_scraped', 0)} pages scraped, {stats.get('documents_downloaded', 0)} docs indexed, {stats.get('queue_remaining', 0)} URLs in queue."
+                    },
+                    {
+                        "timestamp": timestamp,
+                        "level": "info",
+                        "message": f"Processed {stats.get('total_urls_visited', 0)} total links across {stats.get('current_batch', 1)} continuous batches."
+                    }
+                ]
+
     return {
-        "is_running": crawler.is_running,
-        "current_job_id": crawler.current_job_id,
-        "current_url": crawler.current_url,
-        "stats": dict(crawler.stats) if crawler.stats else {},
+        "is_running": is_running,
+        "current_job_id": current_job_id,
+        "job_name": job_name,
+        "current_url": current_url,
+        "stats": stats,
         "activity_logs": logs,
     }
 
@@ -320,7 +368,7 @@ async def crawl_single_resource(payload: CrawlSingleUrlRequest):
             cond_headers = await DeltaDetector.get_conditional_headers(url, session)
             async with httpx.AsyncClient(verify=True, follow_redirects=True) as client:
                 success, status_code, local_path, content_hash, resp_headers = await DocumentDownloader.download_file(
-                    client, url, conditional_headers=cond_headers
+                    client, url, conditional_headers=cond_headers, allowed_domains=allowed_domains
                 )
 
             if status_code == 304:
@@ -447,6 +495,7 @@ async def cleanup_scraper_storage():
 
 
 @router.delete("/purge-rag-data")
+@router.post("/purge-rag-data")
 async def purge_scraped_rag_data():
     """
     Permanently purges all RAG data generated from web scraping:

@@ -22,6 +22,7 @@ from api.routers.brain import router as brain_router, alias_router as brain_alia
 from api.routers.context import router as context_router
 from api.routers.server_migration import router as migration_router
 from api.routers.admin_auth import router as admin_auth_router, ensure_initial_superadmin
+from api.routers.admin_conversations import router as admin_conversations_router
 from api.context.tiered_engine import tiered_engine
 from api.scraper.scheduler import scraper_scheduler
 from db.session import init_db, async_session_factory
@@ -140,6 +141,13 @@ async def lifespan(app: FastAPI):
         logger.info("Closed Qdrant vector store connection.")
     except Exception as e:
         logger.warning(f"Error closing Qdrant store: {e}")
+
+    try:
+        from api.rag.embedder import embedder
+        embedder.close()
+        logger.info("Closed remote embedder connection pool.")
+    except Exception as e:
+        logger.warning(f"Error closing embedder connection pool: {e}")
 
     try:
         from db.session import engine
@@ -273,6 +281,7 @@ app.include_router(brain_alias_router)
 app.include_router(context_router)
 app.include_router(migration_router)
 app.include_router(admin_auth_router)
+app.include_router(admin_conversations_router)
 
 
 if __name__ == "__main__":

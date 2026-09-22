@@ -14,6 +14,7 @@ from .delta_detector import DeltaDetector
 from .doc_downloader import DocumentDownloader
 from .ingest_bridge import ScraperIngestBridge
 from .storage_cleaner import StorageCleaner
+from .dynamic_fetcher import dynamic_fetcher, DynamicWebFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -274,11 +275,11 @@ class UniversityWebCrawler:
                     except Exception:
                         pass
 
-                    # Refresh BM25 index once every 5 batches
+                    # Refresh BM25 index once every 5 batches in background thread
                     if batch_num % 5 == 0:
                         try:
                             from api.rag.bm25_index import bm25_index
-                            bm25_index.reload_from_db()
+                            await asyncio.to_thread(bm25_index.reload_from_db)
                         except Exception:
                             pass
 
@@ -318,7 +319,7 @@ class UniversityWebCrawler:
                 cond_headers = await DeltaDetector.get_conditional_headers(url, session)
 
             success, status_code, local_path, content_hash, resp_headers = await DocumentDownloader.download_file(
-                client, url, conditional_headers=cond_headers
+                client, url, conditional_headers=cond_headers, allowed_domains=allowed_domains
             )
 
             if status_code == 304:
@@ -332,6 +333,8 @@ class UniversityWebCrawler:
                 self.stats["errors"] += 1
                 return
 
+            manifest_entry = None
+            should_ingest = False
             async with async_session_factory() as session:
                 should_ingest, reason, manifest_entry = await DeltaDetector.evaluate_change(
                     url=url,
@@ -347,23 +350,23 @@ class UniversityWebCrawler:
                     manifest_entry.local_file_path = None
                     await session.commit()
 
-                if should_ingest and auto_ingest:
-                    self.log_activity(f"📥 [Processing Document] Verifying content: {url.split('/')[-1]}")
-                    ingest_res = await ScraperIngestBridge.ingest_document_file(local_path, manifest_entry, session)
-                    if ingest_res.get("status") == "success":
-                        self.stats["documents_downloaded"] += 1
-                        self.log_activity(f"✅ Ingested PDF: {url.split('/')[-1]} ({ingest_res.get('chunks_count', 0)} chunks)")
-                    elif ingest_res.get("status") == "skipped":
-                        self.stats["skipped_unchanged"] += 1
-                        self.log_activity(f"⚡ [Skipped Duplicate] Document content already indexed: {url.split('/')[-1]}")
-                    else:
-                        self.stats["errors"] += 1
-                        self.log_activity(f"⚠️ Ingest note for {url.split('/')[-1]}: {ingest_res.get('message', 'Pipeline skipped')}", level="warning")
-                else:
+            if should_ingest and auto_ingest:
+                self.log_activity(f"📥 [Processing Document] Verifying content: {url.split('/')[-1]}")
+                ingest_res = await ScraperIngestBridge.ingest_document_file(local_path, manifest_entry)
+                if ingest_res.get("status") == "success":
+                    self.stats["documents_downloaded"] += 1
+                    self.log_activity(f"✅ Ingested PDF: {url.split('/')[-1]} ({ingest_res.get('chunks_count', 0)} chunks)")
+                elif ingest_res.get("status") == "skipped":
                     self.stats["skipped_unchanged"] += 1
-                    self.log_activity(f"⚡ [Unchanged Hash] Skipped duplicate document: {url.split('/')[-1]}")
-                    if local_path:
-                        StorageCleaner.cleanup_file(local_path)
+                    self.log_activity(f"⚡ [Skipped Duplicate] Document content already indexed: {url.split('/')[-1]}")
+                else:
+                    self.stats["errors"] += 1
+                    self.log_activity(f"⚠️ Ingest note for {url.split('/')[-1]}: {ingest_res.get('message', 'Pipeline skipped')}", level="warning")
+            else:
+                self.stats["skipped_unchanged"] += 1
+                self.log_activity(f"⚡ [Unchanged Hash] Skipped duplicate document: {url.split('/')[-1]}")
+                if local_path:
+                    StorageCleaner.cleanup_file(local_path)
 
         else:
             # 2. Process HTML Web Page
@@ -412,6 +415,23 @@ class UniversityWebCrawler:
             if banners:
                 self.log_activity(f"🖼️ [Banner OCR] Extracted {len(banners)} visual announcements from {title[:30]}")
 
+            # DevExpress ASP.NET WebForms Deep Multi-Page Harvesting
+            dynamic_doc_links: List[str] = []
+            if DynamicWebFetcher.is_devexpress_or_dynamic_url(url) or DynamicWebFetcher.detect_devexpress_grid_in_html(resp.text):
+                try:
+                    self.log_activity(f"⚡ [DevExpress Dynamic Engine] Harvesting all pages of notices & datesheets from {url}...")
+                    dx_result = await dynamic_fetcher.fetch_devexpress_grid_all_pages(url, max_pages=15)
+                    if dx_result.get("success") and dx_result.get("markdown_table"):
+                        dx_table = dx_result["markdown_table"]
+                        dx_docs = dx_result.get("discovered_doc_links", [])
+                        total_rows = dx_result.get("total_rows", 0)
+                        dynamic_doc_links = dx_docs
+                        # Prepend the complete multi-page table to ensure high RAG visibility
+                        markdown_text = f"## Official University Examination Schedules & Notices (Complete Multi-Page Data)\n\n{dx_table}\n\n" + markdown_text
+                        self.log_activity(f"🎯 [DevExpress Engine] Extracted {total_rows} notices and {len(dx_docs)} documents across {dx_result.get('pages_extracted', 1)} pages.")
+                except Exception as dx_err:
+                    logger.warning(f"DevExpress dynamic fetch fallback note for {url}: {dx_err}")
+
             async with async_session_factory() as session:
                 should_ingest, reason, manifest_entry = await DeltaDetector.evaluate_change(
                     url=url,
@@ -443,17 +463,27 @@ class UniversityWebCrawler:
                 else:
                     self.stats["skipped_unchanged"] += 1
 
-            # Link Discovery: Enqueue children if depth < max_depth
+            # Link Discovery: Enqueue children (both static harvested links and dynamic DevExpress PDFs)
+            page_links, doc_links = PageExtractor.harvest_links(resp.content, url, allowed_domains)
+            all_discovered_docs = sorted(list(set(doc_links) | set(dynamic_doc_links)))
+
+            # Document links are high-value and are enqueued even if near max_depth
+            new_links_count = 0
+            for doc_url in all_discovered_docs:
+                if doc_url not in visited:
+                    visited.add(doc_url)
+                    queue.append((doc_url, depth + 1))
+                    new_links_count += 1
+
             if depth < max_depth:
-                page_links, doc_links = PageExtractor.harvest_links(resp.content, url, allowed_domains)
-                new_links_count = 0
-                for child_url in doc_links + page_links:
+                for child_url in page_links:
                     if child_url not in visited:
                         visited.add(child_url)
                         queue.append((child_url, depth + 1))
                         new_links_count += 1
-                if new_links_count > 0:
-                    self.log_activity(f"🔗 Discovered {new_links_count} links on {title[:30]} (Depth {depth+1})")
+
+            if new_links_count > 0:
+                self.log_activity(f"🔗 Discovered {new_links_count} links on {title[:30]} ({len(all_discovered_docs)} documents, Depth {depth+1})")
 
 
 # Singleton Crawler Instance

@@ -7,13 +7,13 @@ from api.core.config import settings
 logger = logging.getLogger(__name__)
 
 ABSTENTION_MESSAGE = (
-    "I do not have sufficient verified course material to answer this question. "
-    "Please refer to your faculty or syllabus."
+    "I could not locate an official verified document or circular in the MDU Rohtak knowledge base for this specific query. "
+    "For the latest verified details, please visit the official university portal at https://mdu.ac.in or contact your department / center office."
 )
 
 ABSTENTION_MESSAGE_HINDI = (
-    "मेरे पास इस प्रश्न का उत्तर देने के लिए पर्याप्त सत्यापित विश्वविद्यालय सामग्री उपलब्ध नहीं है। "
-    "कृपया अपने संबंधित विभाग, संकाय (Faculty) या सिलेबस का संदर्भ लें।"
+    "MDU रोहतक के आधिकारिक नॉलेज बेस में इस विशिष्ट प्रश्न के लिए सत्यापित सर्कुलर या दस्तावेज़ नहीं मिला। "
+    "नवीनतम आधिकारिक जानकारी के लिए कृपया MDU की मुख्य वेबसाइट https://mdu.ac.in देखें या अपने संबंधित विभाग/कार्यालय से संपर्क करें।"
 )
 
 def get_abstention_message(question: Optional[str] = None) -> str:
@@ -79,6 +79,7 @@ class LLMRouter:
         messages: List[Dict[str, str]],
         temperature: float = 0.2,
         stream: bool = False,
+        max_tokens: Optional[int] = None,
     ) -> Dict[str, Any]:
         # 0. Conversational Short-Circuit (Instant response for greetings/identity)
         last_user_msg = ""
@@ -123,7 +124,11 @@ class LLMRouter:
         try:
             from api.rag.chat_generator import chat_generator
             if chat_generator.is_available():
-                ans = await chat_generator.generate_chat_completion(messages=full_messages, temperature=temperature)
+                ans = await chat_generator.generate_chat_completion(
+                    messages=full_messages,
+                    temperature=temperature,
+                    max_new_tokens=max_tokens
+                )
                 return {
                     "choices": [
                         {
@@ -288,7 +293,16 @@ class LLMRouter:
             "6. Never mention internal software development plans, requirements planning, document ingestion pipelines, administrative dashboards, or technical code to the user. You are an academic assistant communicating with university students.\n"
             "7. When asked about university admissions, summarize the verified guidelines, programs, submission deadlines, and official portal (www.mdu.ac.in) found in the documents.\n"
             "8. LANGUAGE ADAPTATION: Always match the language or dialect used by the student. If the user asks in Hindi (Devanagari), answer in fluent, polite Hindi. If the user asks in Hinglish (Roman Hindi, like 'exam kab hai', 'admission kaise karein'), reply in natural, polite Hinglish or Hindi. If in English, reply in English.\n"
-            "9. Provide a complete, fully formed answer. Always finish your thoughts, sentences, and lists cleanly without cutting off abruptly."
+            "9. Provide a complete, fully formed answer. Always finish your thoughts, sentences, and lists cleanly without cutting off abruptly.\n"
+            "10. MDU EXAMINATION DATESHEET & CONDUCT ARCHITECTURE: When asked about examination datesheets, timings, or schedules (e.g. for BCA, B.Tech, MCA, B.Sc, BA, MBA, etc.):\n"
+            "- Explain that MDU does NOT issue a single combined datesheet for distinct degree programs (such as BCA and B.Tech together); each degree and semester has its own separate datesheet.\n"
+            "- University examinations at MDU follow a central academic calendar managed exclusively by the Controller of Examinations (COE) / Conduct Branch:\n"
+            "  * Odd Semesters (1st, 3rd, 5th, 7th Semesters): Examinations are held in December – January (datesheets released around November).\n"
+            "  * Even Semesters (2nd, 4th, 6th, 8th Semesters): Examinations are held in May – June (datesheets released around April/May).\n"
+            "  * Special Chance & Mercy Chance Examinations: Conducted in September – October.\n"
+            "- Direct students to the centralized Conduct Branch Examination Datesheet hub at https://mdu.ac.in/admin/EventPage.aspx?id=2 and Exam Notifications at https://mdu.ac.in/admin/EventPage.aspx?id=1015, or the student portal at https://student.mdu.ac.in / http://preexam.mdurtk.in.\n"
+            "- Never instruct students to check individual academic department pages for datesheets because datesheets are strictly centralized under the Conduct Branch.\n"
+            "- Ask the student to specify their exact semester (e.g. 1st, 3rd, 5th) and category (Regular or Re-appear/Special Chance) to find the relevant circular."
         )
 
         messages = [

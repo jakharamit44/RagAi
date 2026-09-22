@@ -15,9 +15,10 @@ export default function FirewallTab() {
     setLoading(true);
     try {
       const data = await adminApi.firewall.getRules();
-      setRules(data || []);
+      setRules(Array.isArray(data) ? data : (data?.rules || data?.items || []));
     } catch (err) {
       console.error('Failed to load rules:', err);
+      setRules([]);
     } finally {
       setLoading(false);
     }

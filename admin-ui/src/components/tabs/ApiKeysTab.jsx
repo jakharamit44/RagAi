@@ -17,9 +17,10 @@ export default function ApiKeysTab() {
     setLoading(true);
     try {
       const data = await adminApi.apiKeys.getKeys();
-      setKeys(data || []);
+      setKeys(Array.isArray(data) ? data : (data?.keys || data?.items || []));
     } catch (err) {
       console.error('Failed to load API keys:', err);
+      setKeys([]);
     } finally {
       setLoading(false);
     }
@@ -94,11 +95,11 @@ export default function ApiKeysTab() {
               <input
                 type="text"
                 readOnly
-                value={createdKey.raw_key || createdKey.api_key}
+                value={createdKey.raw_api_key || createdKey.raw_key || createdKey.api_key}
                 className="flex-1 px-3 py-2 bg-white border border-[#C3E6CB] rounded-lg font-mono text-xs font-bold"
               />
               <button
-                onClick={() => handleCopy(createdKey.raw_key || createdKey.api_key)}
+                onClick={() => handleCopy(createdKey.raw_api_key || createdKey.raw_key || createdKey.api_key)}
                 className="px-3 py-2 bg-charcoal text-white rounded-lg text-xs font-semibold flex items-center gap-1"
               >
                 {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}

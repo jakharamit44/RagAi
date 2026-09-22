@@ -1,12 +1,15 @@
 import time
 import json
+import uuid
 import asyncio
 import hashlib
 import logging
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Request, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select, and_, desc
 
 from api.core.config import settings
 from api.core.llm_router import llm_router, ABSTENTION_MESSAGE, ABSTENTION_MESSAGE_HINDI, get_abstention_message
@@ -23,7 +26,7 @@ from api.core.metrics import (
 )
 from api.rag.retriever import retriever
 from db.session import async_session_factory
-from db.models import QueryAuditLog, User
+from db.models import QueryAuditLog, User, ChatSession, ChatMessage
 from api.core.security_logger import record_security_incident_bg, detect_prompt_injection
 from api.core.content_guard import inspect_content_safety
 
@@ -53,12 +56,13 @@ class AskRequest(BaseModel):
     stream: bool = False
 
 class AskResponse(BaseModel):
-    """Reference: Appendix B (Table 20)"""
+    """Reference: Appendix B (Table 20) with session tracking"""
     answer: str
     citations: List[Citation]
     served_by: str  # local | hosted | fallback | cache
     confidence: Optional[float] = 1.0
     crag_decision: Optional[str] = "CORRECT"
+    session_id: Optional[str] = None
 
 _BACKGROUND_TASKS: set = set()
 
@@ -94,6 +98,85 @@ async def record_audit(
     except Exception as e:
         logger.warning(f"Audit log recording error: {e}")
 
+async def record_chat_interaction_bg(
+    session_id: str,
+    user_identifier: str,
+    role: str,
+    department: Optional[str],
+    course: Optional[str],
+    user_query: str,
+    assistant_answer: str,
+    citations: List[Dict[str, Any]],
+    confidence: Optional[float] = 1.0,
+    crag_decision: Optional[str] = "CORRECT",
+    served_by: str = "local",
+    latency_ms: float = 0.0,
+    tokens: int = 0
+):
+    """
+    Asynchronously persists user questions and assistant answers to ChatSession and ChatMessage.
+    Runs in the background with zero latency impact on live inference or streaming tokens.
+    """
+    try:
+        is_low_conf = (confidence is not None and confidence < 0.75) or (crag_decision == "INCORRECT")
+        citations_str = json.dumps(citations, ensure_ascii=False) if citations else None
+        title_snippet = user_query.strip().split("\n")[0][:80]
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        async with async_session_factory() as session:
+            stmt = select(ChatSession).where(ChatSession.session_id == session_id)
+            chat_sess = (await session.execute(stmt)).scalar_one_or_none()
+
+            if not chat_sess:
+                chat_sess = ChatSession(
+                    session_id=session_id,
+                    title=title_snippet,
+                    user_identifier=user_identifier,
+                    role=role or "student",
+                    department=department,
+                    course=course,
+                    message_count=2,
+                    feedback_score=0,
+                    has_negative_feedback=False,
+                    has_low_confidence=is_low_conf,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(chat_sess)
+            else:
+                chat_sess.message_count += 2
+                chat_sess.updated_at = now
+                if is_low_conf:
+                    chat_sess.has_low_confidence = True
+
+            # Add User Message
+            user_msg = ChatMessage(
+                session_id=session_id,
+                sender="user",
+                content=user_query,
+                created_at=now,
+            )
+            session.add(user_msg)
+
+            # Add Assistant Message
+            asst_msg = ChatMessage(
+                session_id=session_id,
+                sender="assistant",
+                content=assistant_answer,
+                citations_json=citations_str,
+                confidence=confidence,
+                crag_decision=crag_decision,
+                served_by=served_by,
+                latency_ms=latency_ms,
+                tokens_used=tokens,
+                created_at=now,
+            )
+            session.add(asst_msg)
+
+            await session.commit()
+    except Exception as e:
+        logger.warning(f"Error persisting chat interaction for session {session_id}: {e}")
+
 @router.post("/ask", responses={200: {"model": AskResponse}})
 @router.post("/api/v1/ask", responses={200: {"model": AskResponse}})
 async def ask_question(
@@ -107,6 +190,9 @@ async def ask_question(
     Supports both JSON response and real-time SSE streaming (req.stream=True).
     """
     start_time = time.time()
+    session_id = req.session_id or str(uuid.uuid4())
+    req.session_id = session_id
+    role_val = user.role if user else (req.role or "student")
     q_text = (req.question or req.query or "").strip()
     if not q_text:
         raise HTTPException(
@@ -200,26 +286,42 @@ async def ask_question(
         RAG_QUERY_DURATION.labels(served_by="cache").observe(duration_s)
 
         _spawn_bg_task(record_audit(req.question, served_by="cache", latency_ms=latency_ms, tokens=0))
+        _spawn_bg_task(record_chat_interaction_bg(
+            session_id=session_id,
+            user_identifier=client_id,
+            role=role_val,
+            department=target_dept,
+            course=req.course,
+            user_query=req.question,
+            assistant_answer=cached_data["answer"],
+            citations=cached_data.get("citations", []),
+            confidence=1.0,
+            crag_decision="CORRECT",
+            served_by="cache",
+            latency_ms=latency_ms,
+            tokens=0
+        ))
         logger.info(f"Cache Tier-1 HIT for query: '{req.question[:40]}...' (Latency: {latency_ms:.2f}ms)")
 
         # Stream cached response if client requested stream
         if req.stream:
             async def stream_cached():
-                yield f"data: {json.dumps({'type': 'metadata', 'served_by': 'cache'})}\n\n"
+                yield f"data: {json.dumps({'type': 'metadata', 'session_id': session_id, 'served_by': 'cache'})}\n\n"
                 yield f"data: {json.dumps({'type': 'citations', 'citations': cached_data.get('citations', [])})}\n\n"
                 ans_words = cached_data.get("answer", "").split(" ")
                 for idx, w in enumerate(ans_words):
                     chunk_str = w if idx == len(ans_words) - 1 else w + " "
                     yield f"data: {json.dumps({'type': 'token', 'delta': chunk_str})}\n\n"
                     await asyncio.sleep(0.01)
-                yield f"data: {json.dumps({'type': 'done', 'total_latency_ms': round((time.time() - start_time) * 1000, 2)})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'total_latency_ms': round((time.time() - start_time) * 1000, 2)})}\n\n"
 
             return StreamingResponse(stream_cached(), media_type="text/event-stream")
 
         return AskResponse(
             answer=cached_data["answer"],
             citations=[Citation(**c) for c in cached_data.get("citations", [])],
-            served_by="cache"
+            served_by="cache",
+            session_id=session_id
         )
 
     # 3.5. Natural Conversational / Identity Query Handling (MDU Rohtak Assistant)
@@ -230,24 +332,40 @@ async def ask_question(
         RAG_QUERY_TOTAL.labels(status="success", served_by="local", department=dept_label).inc()
         RAG_QUERY_DURATION.labels(served_by="local").observe((time.time() - start_time))
         asyncio.create_task(record_audit(req.question, served_by="local", latency_ms=elapsed_ms, tokens=len(conv_response.split())))
+        _spawn_bg_task(record_chat_interaction_bg(
+            session_id=session_id,
+            user_identifier=client_id,
+            role=role_val,
+            department=target_dept,
+            course=req.course,
+            user_query=req.question,
+            assistant_answer=conv_response,
+            citations=[],
+            confidence=1.0,
+            crag_decision="CORRECT",
+            served_by="local",
+            latency_ms=elapsed_ms,
+            tokens=len(conv_response.split())
+        ))
 
         if req.stream:
             async def stream_conversational():
-                yield f"data: {json.dumps({'type': 'metadata', 'served_by': 'local'})}\n\n"
+                yield f"data: {json.dumps({'type': 'metadata', 'session_id': session_id, 'served_by': 'local'})}\n\n"
                 yield f"data: {json.dumps({'type': 'citations', 'citations': []})}\n\n"
                 words = conv_response.split(" ")
                 for idx, w in enumerate(words):
                     chunk_str = w if idx == len(words) - 1 else w + " "
                     yield f"data: {json.dumps({'type': 'token', 'delta': chunk_str})}\n\n"
                     await asyncio.sleep(0.015)
-                yield f"data: {json.dumps({'type': 'done', 'total_latency_ms': elapsed_ms})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'total_latency_ms': elapsed_ms})}\n\n"
 
             return StreamingResponse(stream_conversational(), media_type="text/event-stream")
 
         return AskResponse(
             answer=conv_response,
             citations=[],
-            served_by="local"
+            served_by="local",
+            session_id=session_id
         )
 
     # 3.8. Tier-2 Semantic Vector Cache Check (Cosine similarity >= 0.94)
@@ -263,25 +381,41 @@ async def ask_question(
         RAG_QUERY_DURATION.labels(served_by="cache").observe(duration_s)
 
         asyncio.create_task(record_audit(req.question, served_by="cache", latency_ms=latency_ms, tokens=0))
+        _spawn_bg_task(record_chat_interaction_bg(
+            session_id=session_id,
+            user_identifier=client_id,
+            role=role_val,
+            department=target_dept,
+            course=req.course,
+            user_query=req.question,
+            assistant_answer=cached_semantic["answer"],
+            citations=cached_semantic.get("citations", []),
+            confidence=1.0,
+            crag_decision="CORRECT",
+            served_by="cache",
+            latency_ms=latency_ms,
+            tokens=0
+        ))
         logger.info(f"Cache Tier-2 Semantic HIT for query: '{req.question[:40]}...' (Latency: {latency_ms:.2f}ms)")
 
         if req.stream:
             async def stream_cached_sem():
-                yield f"data: {json.dumps({'type': 'metadata', 'served_by': 'cache'})}\n\n"
+                yield f"data: {json.dumps({'type': 'metadata', 'session_id': session_id, 'served_by': 'cache'})}\n\n"
                 yield f"data: {json.dumps({'type': 'citations', 'citations': cached_semantic.get('citations', [])})}\n\n"
                 ans_words = cached_semantic.get("answer", "").split(" ")
                 for idx, w in enumerate(ans_words):
                     chunk_str = w if idx == len(ans_words) - 1 else w + " "
                     yield f"data: {json.dumps({'type': 'token', 'delta': chunk_str})}\n\n"
                     await asyncio.sleep(0.01)
-                yield f"data: {json.dumps({'type': 'done', 'total_latency_ms': round((time.time() - start_time) * 1000, 2)})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'total_latency_ms': round((time.time() - start_time) * 1000, 2)})}\n\n"
 
             return StreamingResponse(stream_cached_sem(), media_type="text/event-stream")
 
         return AskResponse(
             answer=cached_semantic["answer"],
             citations=[Citation(**c) for c in cached_semantic.get("citations", [])],
-            served_by="cache"
+            served_by="cache",
+            session_id=session_id
         )
 
     # 3.9. OpenViking-Inspired Adaptive Tiered Context Check (L1 Overview fast-path)
@@ -298,27 +432,43 @@ async def ask_question(
             RAG_QUERY_TOTAL.labels(status="success", served_by="local", department=dept_label).inc()
             RAG_QUERY_DURATION.labels(served_by="local").observe(duration_s)
             _spawn_bg_task(record_audit(req.question, served_by="tiered_context_l1", latency_ms=latency_ms, tokens=len(l1_answer["answer"].split())))
+            _spawn_bg_task(record_chat_interaction_bg(
+                session_id=session_id,
+                user_identifier=client_id,
+                role=role_val,
+                department=target_dept,
+                course=req.course,
+                user_query=req.question,
+                assistant_answer=l1_answer["answer"],
+                citations=l1_answer.get("citations", []),
+                confidence=1.0,
+                crag_decision="CORRECT",
+                served_by="tiered_context_l1",
+                latency_ms=latency_ms,
+                tokens=len(l1_answer["answer"].split())
+            ))
             logger.info(f"OpenViking L1 Overview Fast-Path served for query: '{req.question[:40]}...' (Latency: {latency_ms:.2f}ms, Saved ~{l1_answer.get('tokens_saved_approx')} tokens)")
 
             citations = [Citation(**c) for c in l1_answer.get("citations", [])]
 
             if req.stream:
                 async def stream_l1():
-                    yield f"data: {json.dumps({'type': 'metadata', 'served_by': 'tiered_context_l1', 'uri': l1_answer.get('uri')})}\n\n"
+                    yield f"data: {json.dumps({'type': 'metadata', 'session_id': session_id, 'served_by': 'tiered_context_l1', 'uri': l1_answer.get('uri')})}\n\n"
                     yield f"data: {json.dumps({'type': 'citations', 'citations': [c.model_dump() for c in citations]})}\n\n"
                     words = l1_answer["answer"].split(" ")
                     for idx, w in enumerate(words):
                         chunk_str = w if idx == len(words) - 1 else w + " "
                         yield f"data: {json.dumps({'type': 'token', 'delta': chunk_str})}\n\n"
                         await asyncio.sleep(0.01)
-                    yield f"data: {json.dumps({'type': 'done', 'total_latency_ms': round((time.time() - start_time) * 1000, 2)})}\n\n"
+                    yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'total_latency_ms': round((time.time() - start_time) * 1000, 2)})}\n\n"
 
                 return StreamingResponse(stream_l1(), media_type="text/event-stream")
 
             return AskResponse(
                 answer=l1_answer["answer"],
                 citations=citations,
-                served_by="tiered_context_l1"
+                served_by="tiered_context_l1",
+                session_id=session_id
             )
 
     # 4. Cache MISS -> Hybrid Scope-Filtered Retrieval with CRAG (Phase 4)
@@ -359,6 +509,93 @@ async def ask_question(
 
     # 5. Explicit Abstention check if no matching evidence or CRAG INCORRECT
     if not chunks or (crag_result and crag_result.decision == "INCORRECT"):
+        from api.core.conversational import is_mdu_institutional_query
+        is_inst = is_mdu_institutional_query(req.question)
+
+        if not is_inst:
+            # The query is general academic, coding, math, science, general knowledge, or conversational.
+            # Serve using Full Generative AI reasoning!
+            logger.info(f"General AI fallback engaged for non-institutional query: '{req.question[:60]}'")
+            gen_system_prompt = (
+                "You are an intelligent, helpful AI Academic Assistant at Maharshi Dayanand University (MDU Rohtak). "
+                "Provide clear, comprehensive, and accurate explanations for academic concepts, coding, mathematics, "
+                "science, study techniques, and general knowledge. Answer warmly, politely, and thoroughly in the language used by the student."
+            )
+            messages = [
+                {"role": "system", "content": gen_system_prompt},
+                {"role": "user", "content": req.question}
+            ]
+
+            if req.stream:
+                async def stream_general_ai():
+                    yield f"data: {json.dumps({'type': 'metadata', 'session_id': session_id, 'served_by': 'general_ai', 'crag_decision': 'NOT_APPLICABLE', 'confidence': 1.0})}\n\n"
+                    yield f"data: {json.dumps({'type': 'citations', 'citations': []})}\n\n"
+                    accumulated_tokens = []
+                    async for token in llm_router.stream_response(messages=messages, temperature=0.3):
+                        accumulated_tokens.append(token)
+                        yield f"data: {json.dumps({'type': 'token', 'delta': token})}\n\n"
+
+                    full_answer = "".join(accumulated_tokens).strip()
+                    elapsed_ms = round((time.time() - start_time) * 1000, 2)
+                    yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'total_latency_ms': elapsed_ms})}\n\n"
+
+                    cache_payload = {"answer": full_answer, "citations": []}
+                    await cache.set_semantic(cache_key, query_vec, scope_key, cache_payload, ttl=settings.CACHE_TTL_VOLATILE_SECONDS)
+                    RAG_QUERY_TOTAL.labels(status="success", served_by="local", department=dept_label).inc()
+                    RAG_QUERY_DURATION.labels(served_by="local").observe(time.time() - start_time)
+                    _spawn_bg_task(record_audit(req.question, served_by="general_ai", latency_ms=elapsed_ms, tokens=len(accumulated_tokens)))
+                    _spawn_bg_task(record_chat_interaction_bg(
+                        session_id=session_id,
+                        user_identifier=client_id,
+                        role=role_val,
+                        department=target_dept,
+                        course=req.course,
+                        user_query=req.question,
+                        assistant_answer=full_answer,
+                        citations=[],
+                        confidence=1.0,
+                        crag_decision="CORRECT",
+                        served_by="general_ai",
+                        latency_ms=elapsed_ms,
+                        tokens=len(accumulated_tokens)
+                    ))
+
+                return StreamingResponse(stream_general_ai(), media_type="text/event-stream")
+
+            # Non-streaming general AI fallback
+            gen_resp = await llm_router.generate_response(messages=messages, temperature=0.3)
+            gen_answer = gen_resp["choices"][0]["message"]["content"]
+            elapsed_ms = round((time.time() - start_time) * 1000, 2)
+
+            cache_payload = {"answer": gen_answer, "citations": []}
+            await cache.set_semantic(cache_key, query_vec, scope_key, cache_payload, ttl=settings.CACHE_TTL_VOLATILE_SECONDS)
+            RAG_QUERY_TOTAL.labels(status="success", served_by="local", department=dept_label).inc()
+            RAG_QUERY_DURATION.labels(served_by="local").observe(time.time() - start_time)
+            _spawn_bg_task(record_audit(req.question, served_by="general_ai", latency_ms=elapsed_ms, tokens=len(gen_answer.split())))
+            _spawn_bg_task(record_chat_interaction_bg(
+                session_id=session_id,
+                user_identifier=client_id,
+                role=role_val,
+                department=target_dept,
+                course=req.course,
+                user_query=req.question,
+                assistant_answer=gen_answer,
+                citations=[],
+                confidence=1.0,
+                crag_decision="CORRECT",
+                served_by="general_ai",
+                latency_ms=elapsed_ms,
+                tokens=len(gen_answer.split())
+            ))
+            return AskResponse(
+                answer=gen_answer,
+                citations=[],
+                served_by="general_ai",
+                confidence=1.0,
+                crag_decision="CORRECT",
+                session_id=session_id
+            )
+
         duration_s = time.time() - start_time
         latency_ms = duration_s * 1000
         crag_dec = crag_result.decision if crag_result else "INCORRECT"
@@ -369,12 +606,28 @@ async def ask_question(
 
         abstention_text = get_abstention_message(req.question)
 
+        _spawn_bg_task(record_chat_interaction_bg(
+            session_id=session_id,
+            user_identifier=client_id,
+            role=role_val,
+            department=target_dept,
+            course=req.course,
+            user_query=req.question,
+            assistant_answer=abstention_text,
+            citations=[],
+            confidence=crag_conf,
+            crag_decision=crag_dec,
+            served_by="local",
+            latency_ms=latency_ms,
+            tokens=0
+        ))
+
         if req.stream:
             async def stream_abstention():
-                yield f"data: {json.dumps({'type': 'metadata', 'served_by': 'local', 'crag_decision': crag_dec, 'confidence': crag_conf})}\n\n"
+                yield f"data: {json.dumps({'type': 'metadata', 'session_id': session_id, 'served_by': 'local', 'crag_decision': crag_dec, 'confidence': crag_conf})}\n\n"
                 yield f"data: {json.dumps({'type': 'citations', 'citations': []})}\n\n"
                 yield f"data: {json.dumps({'type': 'token', 'delta': abstention_text})}\n\n"
-                yield f"data: {json.dumps({'type': 'done', 'total_latency_ms': round((time.time() - start_time) * 1000, 2)})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'total_latency_ms': round((time.time() - start_time) * 1000, 2)})}\n\n"
 
             return StreamingResponse(stream_abstention(), media_type="text/event-stream")
 
@@ -383,14 +636,15 @@ async def ask_question(
             citations=[],
             served_by="local",
             confidence=crag_conf,
-            crag_decision=crag_dec
+            crag_decision=crag_dec,
+            session_id=session_id
         )
 
     # 6. Stream or Non-Stream LLM synthesis
     if req.stream:
         async def stream_rag():
             try:
-                yield f"data: {json.dumps({'type': 'metadata', 'served_by': 'local', 'crag_decision': crag_result.decision, 'confidence': crag_result.confidence})}\n\n"
+                yield f"data: {json.dumps({'type': 'metadata', 'session_id': session_id, 'served_by': 'local', 'crag_decision': crag_result.decision, 'confidence': crag_result.confidence})}\n\n"
                 yield f"data: {json.dumps({'type': 'citations', 'citations': citations_payload})}\n\n"
 
                 accumulated_tokens = []
@@ -406,7 +660,7 @@ async def ask_question(
                 cleaned_answer = clean_rag_answer(full_answer)
 
                 elapsed_ms = round((time.time() - start_time) * 1000, 2)
-                yield f"data: {json.dumps({'type': 'done', 'total_latency_ms': elapsed_ms})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'total_latency_ms': elapsed_ms})}\n\n"
 
                 # Cache the response for future queries (Tier-1 key + Tier-2 semantic vector)
                 cache_payload = {
@@ -417,6 +671,21 @@ async def ask_question(
                 RAG_QUERY_TOTAL.labels(status="success", served_by="local", department=dept_label).inc()
                 RAG_QUERY_DURATION.labels(served_by="local").observe((time.time() - start_time))
                 _spawn_bg_task(record_audit(req.question, served_by="local", latency_ms=elapsed_ms, tokens=len(accumulated_tokens)))
+                _spawn_bg_task(record_chat_interaction_bg(
+                    session_id=session_id,
+                    user_identifier=client_id,
+                    role=role_val,
+                    department=target_dept,
+                    course=req.course,
+                    user_query=req.question,
+                    assistant_answer=cleaned_answer,
+                    citations=citations_payload,
+                    confidence=crag_result.confidence if crag_result else 1.0,
+                    crag_decision=crag_result.decision if crag_result else "CORRECT",
+                    served_by="local",
+                    latency_ms=elapsed_ms,
+                    tokens=len(accumulated_tokens)
+                ))
             finally:
                 pass
 
@@ -433,15 +702,74 @@ async def ask_question(
 
         abstention_text = get_abstention_message(req.question)
         if rag_result.get("abstained") or rag_result.get("answer") in [ABSTENTION_MESSAGE, ABSTENTION_MESSAGE_HINDI]:
+            from api.core.conversational import is_mdu_institutional_query
+            if not is_mdu_institutional_query(req.question):
+                gen_system_prompt = (
+                    "You are an intelligent, helpful AI Academic Assistant at Maharshi Dayanand University (MDU Rohtak). "
+                    "Provide clear, comprehensive, and accurate explanations for academic concepts, coding, mathematics, "
+                    "science, study techniques, and general knowledge. Answer warmly, politely, and thoroughly in the language used by the student."
+                )
+                messages = [
+                    {"role": "system", "content": gen_system_prompt},
+                    {"role": "user", "content": req.question}
+                ]
+                gen_resp = await llm_router.generate_response(messages=messages, temperature=0.3)
+                gen_answer = gen_resp["choices"][0]["message"]["content"]
+                elapsed_ms = round((time.time() - start_time) * 1000, 2)
+                cache_payload = {"answer": gen_answer, "citations": []}
+                await cache.set_semantic(cache_key, query_vec, scope_key, cache_payload, ttl=settings.CACHE_TTL_VOLATILE_SECONDS)
+                _spawn_bg_task(record_audit(req.question, served_by="general_ai", latency_ms=elapsed_ms, tokens=len(gen_answer.split())))
+                _spawn_bg_task(record_chat_interaction_bg(
+                    session_id=session_id,
+                    user_identifier=client_id,
+                    role=role_val,
+                    department=target_dept,
+                    course=req.course,
+                    user_query=req.question,
+                    assistant_answer=gen_answer,
+                    citations=[],
+                    confidence=1.0,
+                    crag_decision="CORRECT",
+                    served_by="general_ai",
+                    latency_ms=elapsed_ms,
+                    tokens=len(gen_answer.split())
+                ))
+                return AskResponse(
+                    answer=gen_answer,
+                    citations=[],
+                    served_by="general_ai",
+                    confidence=1.0,
+                    crag_decision="CORRECT",
+                    session_id=session_id
+                )
+
             duration_s = time.time() - start_time
             latency_ms = duration_s * 1000
             RAG_QUERY_TOTAL.labels(status="abstained", served_by=served_by, department=dept_label).inc()
             RAG_QUERY_DURATION.labels(served_by=served_by).observe(duration_s)
             _spawn_bg_task(record_audit(req.question, served_by=served_by, latency_ms=latency_ms, tokens=0))
+            _spawn_bg_task(record_chat_interaction_bg(
+                session_id=session_id,
+                user_identifier=client_id,
+                role=role_val,
+                department=target_dept,
+                course=req.course,
+                user_query=req.question,
+                assistant_answer=abstention_text,
+                citations=[],
+                confidence=0.0,
+                crag_decision="INCORRECT",
+                served_by=served_by,
+                latency_ms=latency_ms,
+                tokens=0
+            ))
             return AskResponse(
                 answer=abstention_text,
                 citations=[],
-                served_by=served_by
+                served_by=served_by,
+                confidence=0.0,
+                crag_decision="INCORRECT",
+                session_id=session_id
             )
 
         # Store in Cache (Tier-1 key + Tier-2 semantic vector)
@@ -466,6 +794,21 @@ async def ask_question(
             crag_decision=crag_result.decision if crag_result else "CORRECT",
             confidence=crag_result.confidence if crag_result else 1.0
         ))
+        _spawn_bg_task(record_chat_interaction_bg(
+            session_id=session_id,
+            user_identifier=client_id,
+            role=role_val,
+            department=target_dept,
+            course=req.course,
+            user_query=req.question,
+            assistant_answer=rag_result["answer"],
+            citations=citations_payload,
+            confidence=crag_result.confidence if crag_result else 1.0,
+            crag_decision=crag_result.decision if crag_result else "CORRECT",
+            served_by=served_by,
+            latency_ms=latency_ms,
+            tokens=150
+        ))
         logger.info(f"Cache MISS for query: '{req.question[:40]}...' (Latency: {latency_ms:.2f}ms, CRAG: {crag_result.decision if crag_result else 'NONE'})")
 
         return AskResponse(
@@ -473,7 +816,8 @@ async def ask_question(
             citations=citations,
             served_by=served_by,
             confidence=crag_result.confidence if crag_result else 1.0,
-            crag_decision=crag_result.decision if crag_result else "CORRECT"
+            crag_decision=crag_result.decision if crag_result else "CORRECT",
+            session_id=session_id
         )
     finally:
         pass
@@ -491,6 +835,7 @@ async def submit_user_feedback(req: FeedbackRequest, request: Request):
     """
     Submits student/employee feedback on RAG answers to feed Corrective RAG (CRAG) self-improvement.
     Guarded against feedback poisoning and abusive comments.
+    Persists rating directly to ChatMessage and updates ChatSession aggregate satisfaction score.
     """
     client_ip = request.client.host if request.client else "127.0.0.1"
     if req.reason:
@@ -516,9 +861,59 @@ async def submit_user_feedback(req: FeedbackRequest, request: Request):
                 }
             )
 
+    # Update database record asynchronously
+    async def _update_db_feedback():
+        try:
+            async with async_session_factory() as session:
+                # 1. Try finding message by session_id (latest assistant message in that session)
+                stmt = (
+                    select(ChatMessage)
+                    .where(
+                        and_(
+                            ChatMessage.session_id == req.query_id,
+                            ChatMessage.sender == "assistant"
+                        )
+                    )
+                    .order_by(desc(ChatMessage.created_at))
+                    .limit(1)
+                )
+                msg_rec = (await session.execute(stmt)).scalar_one_or_none()
+
+                # 2. If not found, try finding message by its primary key ID
+                if not msg_rec:
+                    try:
+                        msg_uuid = uuid.UUID(req.query_id)
+                        stmt_id = select(ChatMessage).where(ChatMessage.id == msg_uuid)
+                        msg_rec = (await session.execute(stmt_id)).scalar_one_or_none()
+                    except Exception:
+                        pass
+
+                if msg_rec:
+                    msg_rec.feedback = req.feedback
+                    msg_rec.feedback_reason = req.reason
+
+                    # Update associated ChatSession score
+                    sess_stmt = select(ChatSession).where(ChatSession.session_id == msg_rec.session_id)
+                    sess_rec = (await session.execute(sess_stmt)).scalar_one_or_none()
+                    if sess_rec:
+                        if req.feedback == "up":
+                            sess_rec.feedback_score += 1
+                        elif req.feedback == "down":
+                            sess_rec.feedback_score -= 1
+                            sess_rec.has_negative_feedback = True
+                        sess_rec.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+                    await session.commit()
+                    logger.info(f"Feedback '{req.feedback}' persisted for session/msg {req.query_id}")
+        except Exception as e:
+            logger.warning(f"Error persisting feedback in database: {e}")
+
+    _spawn_bg_task(_update_db_feedback())
+
     logger.info(f"User feedback received: query_id={req.query_id}, feedback={req.feedback}, reason={req.reason}")
     return {
         "status": "success",
         "message": f"Feedback '{req.feedback}' recorded successfully for query '{req.query_id}'"
     }
+
 

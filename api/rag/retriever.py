@@ -55,15 +55,19 @@ class HybridRetriever:
                     course=course,
                     semester=semester,
                 )
-                valid_doc_ids = bm25_index.valid_doc_ids
                 filtered_dense = []
+                is_seeking_results = any(w in query.lower() for w in ["result", "marks", "grade", "roll", "regn", "gazette", "re-appear", "pass", "fail", "score"])
+                gazette_count = 0
                 for r in raw_dense:
                     doc_id = r.get("document_id")
                     title = (r.get("title") or "").lower()
                     if "enterprise_rag" in title or "test_failed" in title:
                         continue
-                    if valid_doc_ids and doc_id not in valid_doc_ids:
-                        continue
+                    is_gazette = "gazette" in title or "result" in title or "roll no" in (r.get("text") or "").lower()[:150]
+                    if not is_seeking_results and is_gazette:
+                        gazette_count += 1
+                        if gazette_count > 2:
+                            continue
                     if r.get("score", 0.0) >= self.MIN_DENSE_SCORE:
                         filtered_dense.append(r)
                 return filtered_dense
@@ -115,22 +119,31 @@ class HybridRetriever:
             fused_candidates.append(cand)
 
         fused_candidates.sort(key=lambda x: x["rrf_score"], reverse=True)
-        # Evaluate top 25 candidates across batched GPU cross-encoder
-        top_candidates = fused_candidates[:25]
+        # Evaluate top 50 candidates across batched GPU cross-encoder
+        top_candidates = fused_candidates[:50]
 
         # 4. Cross-encoder reranking (executed off the main event loop)
-        final_ranked = await asyncio.to_thread(
-            reranker.rerank,
-            query=query,
-            candidate_chunks=top_candidates,
-            top_k=self.top_k_retrieve
-        )
+        try:
+            final_ranked = await asyncio.to_thread(
+                reranker.rerank,
+                query=query,
+                candidate_chunks=top_candidates,
+                top_k=self.top_k_retrieve
+            )
+        except Exception as e:
+            logger.warning(f"Reranking encountered error ({e}), falling back to top fused RRF candidates.")
+            final_ranked = top_candidates[:self.top_k_retrieve]
 
         # Filter out candidates with low relevance
         filtered_final = []
         for c in final_ranked:
-            if c.get("rerank_score", -99.0) >= -2.0 or c.get("score", 0.0) >= 0.20 or c.get("rrf_score", 0.0) > 0.01:
-                filtered_final.append(c)
+            r_score = c.get("rerank_score")
+            if r_score is not None:
+                if r_score >= -2.0:
+                    filtered_final.append(c)
+            else:
+                if c.get("score", 0.0) >= 0.20 or c.get("rrf_score", 0.0) > 0.01:
+                    filtered_final.append(c)
 
         candidates = filtered_final if filtered_final else final_ranked[:self.top_k_final]
 

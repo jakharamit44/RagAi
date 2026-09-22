@@ -7,6 +7,7 @@ from rank_bm25 import BM25Okapi
 
 logger = logging.getLogger(__name__)
 
+TOKEN_RE = re.compile(r"[a-zA-Z0-9]+(?:[\.\-][a-zA-Z0-9]+)*")
 WORD_RE = re.compile(r"\W+")
 
 class BM25Index:
@@ -31,10 +32,19 @@ class BM25Index:
 
     @staticmethod
     def tokenize(text: str) -> List[str]:
-        return [w for w in WORD_RE.split(text.lower()) if len(w) > 1]
+        tokens = []
+        for w in TOKEN_RE.findall(text.lower()):
+            if len(w) > 1:
+                tokens.append(w)
+            norm = w.replace(".", "").replace("-", "")
+            if norm != w and len(norm) > 1:
+                tokens.append(norm)
+        return tokens
+
+    MAX_BM25_CHUNKS = 40000
 
     def reload_from_db(self):
-        """Forces complete reload of BM25 corpus from SQLite."""
+        """Forces complete reload of BM25 corpus from database."""
         with self._load_lock:
             self.bm25 = None
             self.corpus = []
@@ -43,7 +53,7 @@ class BM25Index:
         self.ensure_loaded()
 
     def ensure_loaded(self):
-        """Auto-loads index from sqlite if not yet initialized in memory (zero disk I/O when already loaded)."""
+        """Auto-loads bounded index from database (capped at MAX_BM25_CHUNKS to prevent RAM exhaustion)."""
         if self.bm25 is not None and self.corpus:
             return
 
@@ -59,16 +69,18 @@ class BM25Index:
                     pg_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
                     conn = psycopg2.connect(pg_url)
                     cur = conn.cursor()
-                    cur.execute("""
+                    cur.execute(f"""
                         SELECT c.id, c.document_id, c.page_number,
-                               SUBSTRING(COALESCE(c.section, ''), 1, 300),
-                               SUBSTRING(COALESCE(c.text, ''), 1, 1500),
-                               SUBSTRING(COALESCE(d.title, ''), 1, 300),
+                               SUBSTRING(COALESCE(c.section, ''), 1, 150),
+                               SUBSTRING(COALESCE(c.text, ''), 1, 350),
+                               SUBSTRING(COALESCE(d.title, ''), 1, 200),
                                COALESCE(d.department, ''),
                                COALESCE(d.semester, ''),
                                COALESCE(d.course, '')
                         FROM chunks c
                         JOIN documents d ON c.document_id = d.id
+                        ORDER BY c.id DESC
+                        LIMIT {self.MAX_BM25_CHUNKS}
                     """)
                     rows = cur.fetchall()
                     conn.close()
@@ -82,16 +94,18 @@ class BM25Index:
                         conn.execute("PRAGMA journal_mode=WAL;")
                         conn.execute("PRAGMA synchronous=NORMAL;")
                         cur = conn.cursor()
-                        cur.execute("""
+                        cur.execute(f"""
                             SELECT c.id, c.document_id, c.page_number,
-                                   SUBSTR(COALESCE(c.section, ''), 1, 300),
-                                   SUBSTR(COALESCE(c.text, ''), 1, 1500),
-                                   SUBSTR(COALESCE(d.title, ''), 1, 300),
+                                   SUBSTR(COALESCE(c.section, ''), 1, 150),
+                                   SUBSTR(COALESCE(c.text, ''), 1, 350),
+                                   SUBSTR(COALESCE(d.title, ''), 1, 200),
                                    COALESCE(d.department, ''),
                                    COALESCE(d.semester, ''),
                                    COALESCE(d.course, '')
                             FROM chunks c
                             JOIN documents d ON c.document_id = d.id
+                            ORDER BY c.id DESC
+                            LIMIT {self.MAX_BM25_CHUNKS}
                         """)
                         rows = cur.fetchall()
                         conn.close()
@@ -118,16 +132,35 @@ class BM25Index:
             if chunks:
                 self.build_index(chunks)
 
-    def build_index(self, chunks: List[Dict[str, Any]]):
-        """Build BM25 index from list of chunk payloads, including title & section for rich lexical matching."""
+    def add_chunks(self, new_chunks: List[Dict[str, Any]]):
+        """Append new chunks safely without freezing server on synchronous re-indexing."""
+        if not new_chunks:
+            return
         with self._load_lock:
-            # Create lightweight memory items (cap text to 1500 chars to prevent heap ballooning on massive gazettes)
+            for c in new_chunks:
+                item = dict(c)
+                raw_text = item.get("text") or ""
+                if len(raw_text) > 350:
+                    item["text"] = raw_text[:350]
+                self.corpus.append(item)
+                if item.get("document_id"):
+                    self._valid_doc_ids.add(item.get("document_id"))
+            if len(self.corpus) > self.MAX_BM25_CHUNKS:
+                self.corpus = self.corpus[-self.MAX_BM25_CHUNKS:]
+                self._valid_doc_ids = {d.get("document_id") for d in self.corpus if d.get("document_id")}
+
+    def build_index(self, chunks: List[Dict[str, Any]]):
+        """Build BM25 index from list of chunk payloads with safe memory footprint."""
+        with self._load_lock:
+            if len(chunks) > self.MAX_BM25_CHUNKS:
+                chunks = chunks[-self.MAX_BM25_CHUNKS:]
+
             lightweight = []
             for c in chunks:
                 item = dict(c)
                 raw_text = item.get("text") or ""
-                if len(raw_text) > 1500:
-                    item["text"] = raw_text[:1500]
+                if len(raw_text) > 350:
+                    item["text"] = raw_text[:350]
                 lightweight.append(item)
 
             self.corpus = lightweight
@@ -169,12 +202,23 @@ class BM25Index:
             ORDINAL_EXPANSIONS,
         )
 
+        BM25_STOP_WORDS = {
+            "who", "is", "are", "was", "were", "what", "when", "where", "which", "whom", "whose", "why", "how",
+            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "with", "by", "from",
+            "of", "about", "into", "through", "during", "before", "after", "above", "below", "up", "down",
+            "tell", "me", "give", "details", "information", "info", "please", "can", "you", "show", "list",
+            "find", "get", "do", "does", "did", "have", "has", "had", "name", "names"
+        }
+
         tokens = self.tokenize(query)
         if not tokens:
             return []
 
-        expanded_tokens = list(tokens)
-        for t in tokens:
+        content_tokens = [t for t in tokens if t not in BM25_STOP_WORDS and len(t) > 2]
+        base_tokens = content_tokens if content_tokens else tokens
+
+        expanded_tokens = list(base_tokens)
+        for t in base_tokens:
             if t in ORDINAL_EXPANSIONS:
                 for exp in ORDINAL_EXPANSIONS[t]:
                     if exp not in expanded_tokens:
@@ -187,6 +231,10 @@ class BM25Index:
         q_ent = extract_entity(query)
         ord_conflicts = get_conflicting_ordinals(q_ords) if q_ords else set()
         ent_conflicts = get_conflicting_entities(q_ent) if q_ent else set()
+
+        # Check if user query is specifically seeking student marks/results/gazettes
+        q_lower = query.lower()
+        is_seeking_results = any(w in q_lower for w in ["gazette", "result", "marks", "roll no", "roll number", "reappear", "re-appear", "scorecard", "passed", "failed"])
 
         # Extract specific alphanumeric identifiers (e.g., CS401, 23GEOD102DS02, 22DPIR12C2)
         q_codes = [
@@ -219,6 +267,17 @@ class BM25Index:
             doc_title = (doc.get("title") or "").lower()
             doc_text = (doc.get("text") or "").lower()
             adjusted_score = float(score)
+
+            # Multi-term co-occurrence bonus: If document contains ALL query content terms (e.g. 'vikas' AND 'nagil')
+            if len(content_tokens) >= 2:
+                all_match = all((t in doc_text or t in doc_title) for t in content_tokens)
+                if all_match:
+                    adjusted_score += 35.0
+
+            # Gazette result de-biasing: penalize raw student score lists unless user explicitly wants results
+            is_gazette_doc = ("gazette" in doc_title or "re-appear" in doc_title or "annual exam" in doc_title)
+            if is_gazette_doc and not is_seeking_results:
+                adjusted_score -= 25.0
 
             # Course/Paper code boost (highest priority for academic advising and specific courses)
             if q_codes:

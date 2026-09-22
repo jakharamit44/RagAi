@@ -11,9 +11,10 @@ export default function FailedTab() {
     setLoading(true);
     try {
       const res = await adminApi.failed.getFailedFiles();
-      setFailedFiles(res?.items || res || []);
+      setFailedFiles(Array.isArray(res) ? res : (res?.items || []));
     } catch (err) {
       console.error('Failed to load DLQ files:', err);
+      setFailedFiles([]);
     } finally {
       setLoading(false);
     }

@@ -30,15 +30,25 @@ export async function apiFetch(endpoint, options = {}) {
   }
 
   const url = endpoint.startsWith('http') ? endpoint : endpoint;
+  const timeoutMs = options.timeoutMs || 20000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   let response;
   try {
     response = await fetch(url, {
       ...options,
       headers,
+      signal: options.signal || controller.signal,
     });
   } catch (netErr) {
+    clearTimeout(timer);
+    if (netErr.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs / 1000}s. Server may be busy under background indexing load.`);
+    }
     throw new Error(`Network error: ${netErr.message || 'Server unreachable'}`);
+  } finally {
+    clearTimeout(timer);
   }
 
   // Handle Unauthorized (401)
@@ -100,6 +110,11 @@ export const adminApi = {
       apiFetch(`/api/v1/admin/auth/users/${userId}/status`, {
         method: 'PATCH',
         body: JSON.stringify({ is_active }),
+      }),
+    updateUser: (userId, userData) =>
+      apiFetch(`/api/v1/admin/auth/users/${userId}`, {
+        method: 'PUT',
+        body: JSON.stringify(userData),
       }),
     deleteUser: (userId) =>
       apiFetch(`/api/v1/admin/auth/users/${userId}`, {
@@ -178,6 +193,7 @@ export const adminApi = {
     purgeAll: () =>
       apiFetch('/api/v1/admin/documents/purge', {
         method: 'POST',
+        body: JSON.stringify({ confirm: true }),
       }),
   },
 
@@ -346,4 +362,27 @@ export const adminApi = {
         method: 'POST',
       }),
   },
+
+  // Conversations Inspector & AI Self-Improvement
+  conversations: {
+    getSessions: (params = '') =>
+      apiFetch(`/api/v1/admin/conversations/sessions${params ? `?${params}` : ''}`),
+    getSessionDetail: (sessionId) =>
+      apiFetch(`/api/v1/admin/conversations/sessions/${encodeURIComponent(sessionId)}`),
+    deleteSession: (sessionId) =>
+      apiFetch(`/api/v1/admin/conversations/sessions/${encodeURIComponent(sessionId)}`, {
+        method: 'DELETE',
+      }),
+    purgeSessions: (purgeData = {}) =>
+      apiFetch('/api/v1/admin/conversations/sessions/purge', {
+        method: 'POST',
+        body: JSON.stringify(purgeData),
+      }),
+    getStats: () => apiFetch('/api/v1/admin/conversations/stats'),
+    optimizeFromFailures: () =>
+      apiFetch('/api/v1/admin/conversations/optimize-from-failures', {
+        method: 'POST',
+      }),
+  },
 };
+

@@ -23,6 +23,11 @@ class LocalEmbedder:
         self._load_attempted = False
         self._load_lock = threading.Lock()
 
+        # High-throughput persistent HTTP connection pool for remote TEI
+        self._remote_client = None
+        self._remote_base_url = None
+        self._client_lock = threading.Lock()
+
     def _get_st_model(self):
         with self._load_lock:
             if not self._load_attempted:
@@ -57,15 +62,66 @@ class LocalEmbedder:
                     self._st_model = None
         return self._st_model
 
+    def _get_remote_client(self, base_url: str):
+        """Thread-safe persistent HTTP/1.1 connection pool with TCP Keep-Alive."""
+        with self._client_lock:
+            if self._remote_client is None or self._remote_client.is_closed or self._remote_base_url != base_url:
+                if self._remote_client and not self._remote_client.is_closed:
+                    try:
+                        self._remote_client.close()
+                    except Exception:
+                        pass
+                import httpx
+                # Persistent TCP Keep-Alive connection pooling:
+                # Reuses open TCP sockets across threads, eliminating 3-way handshakes and connection churn
+                limits = httpx.Limits(
+                    max_keepalive_connections=30,
+                    max_connections=100,
+                    keepalive_expiry=120.0
+                )
+                timeout = httpx.Timeout(15.0, connect=3.0)
+                self._remote_client = httpx.Client(
+                    base_url=base_url,
+                    limits=limits,
+                    timeout=timeout,
+                    headers={"Connection": "keep-alive"}
+                )
+                self._remote_base_url = base_url
+            return self._remote_client
+
+    def close(self):
+        """Cleanly close persistent connection pools and release sockets."""
+        with self._client_lock:
+            if self._remote_client and not self._remote_client.is_closed:
+                try:
+                    self._remote_client.close()
+                except Exception:
+                    pass
+                self._remote_client = None
+                self._remote_base_url = None
+
     def warmup(self):
         """Pre-warm model at server startup so first student query has zero latency."""
+        from api.core.config import settings
+        # Pre-establish TCP Keep-Alive connection pool to remote TEI if configured
+        if getattr(settings, "REMOTE_EMBEDDING_URL", None):
+            try:
+                base_url = settings.REMOTE_EMBEDDING_URL.rstrip("/")
+                client = self._get_remote_client(base_url)
+                res = client.post("/embed", json={"inputs": ["academic query warmup"]})
+                if res.status_code == 200:
+                    logger.info("Remote TEI embedder pre-warmed; persistent Keep-Alive connection established.")
+                    return
+            except Exception as e:
+                logger.warning(f"Remote embedder warmup note: {e}")
+
         m = self._get_st_model()
         if m:
             try:
                 _ = m.encode(["academic query warmup"], normalize_embeddings=True)
-                logger.info("Embedder model warmed up successfully.")
+                logger.info("Local embedder model warmed up successfully.")
             except Exception as e:
-                logger.warning(f"Embedder warmup note: {e}")
+                logger.warning(f"Local embedder warmup note: {e}")
 
     def _hash_vectorize(self, text: str) -> List[float]:
         """
@@ -97,15 +153,29 @@ class LocalEmbedder:
         return vec
 
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        if not texts:
+            return []
+
         from api.core.config import settings
-        # 1. High-throughput remote embedding inference (e.g. TEI container on Ubuntu VM)
+        # 1. High-throughput remote embedding inference (e.g. TEI container on Ubuntu VM) with persistent TCP Keep-Alive pool
         if getattr(settings, "REMOTE_EMBEDDING_URL", None):
             try:
-                import httpx
                 base_url = settings.REMOTE_EMBEDDING_URL.rstrip("/")
-                res = httpx.post(f"{base_url}/embed", json={"inputs": texts}, timeout=10.0)
-                if res.status_code == 200:
-                    return res.json()
+                client = self._get_remote_client(base_url)
+                BATCH_SIZE = 32
+                all_embeddings = []
+                remote_ok = True
+                for i in range(0, len(texts), BATCH_SIZE):
+                    batch = texts[i:i + BATCH_SIZE]
+                    res = client.post("/embed", json={"inputs": batch})
+                    if res.status_code == 200:
+                        all_embeddings.extend(res.json())
+                    else:
+                        logger.warning(f"Remote embedding batch returned HTTP {res.status_code}: {res.text[:200]}")
+                        remote_ok = False
+                        break
+                if remote_ok and len(all_embeddings) == len(texts):
+                    return all_embeddings
             except Exception as remote_err:
                 logger.debug(f"Remote embedding request to {settings.REMOTE_EMBEDDING_URL} failed ({remote_err}). Falling back to local embedder.")
 

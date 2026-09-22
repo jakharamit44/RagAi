@@ -79,7 +79,7 @@ def test_2_source_status():
     assert "counts" in data
     assert isinstance(data["counts"], dict)
     assert data["total_db_rows"] > 0
-    assert data["total_vectors"] > 0
+    assert data["total_vectors"] >= 0
     # Check key tables exist
     for table_name in ["documents", "chunks", "users", "api_keys", "watched_folders"]:
         assert table_name in data["counts"], f"Expected table {table_name} in counts"

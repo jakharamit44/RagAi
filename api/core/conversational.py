@@ -117,6 +117,36 @@ def is_hindi_or_hinglish(text: str) -> bool:
 # ---------------------------------------------------------------------------
 # Multilingual Intent Regex Patterns
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Combined Greeting + Courtesy & Joke Responses
+# ---------------------------------------------------------------------------
+MDU_GREETING_AND_HOW_ARE_YOU = (
+    "Hello! I'm doing well, thank you for asking! I am the official AI Academic Assistant for Maharshi Dayanand University (MDU), Rohtak. "
+    "How can I assist you with your studies, courses, UCC services, examination schedules, or university information today?"
+)
+
+MDU_GREETING_AND_HOW_ARE_YOU_HINDI = (
+    "नमस्ते! मैं बहुत अच्छा हूँ, पूछने के लिए धन्यवाद! मैं महर्षि दयानंद विश्वविद्यालय (MDU), रोहतक का आधिकारिक AI अकादमिक सहायक हूँ। "
+    "आज मैं आपकी पढ़ाई, कोर्स, UCC सेवाओं, परीक्षा डेटशीट या विश्वविद्यालय से संबंधित किस विषय में सहायता कर सकता हूँ?"
+)
+
+MDU_JOKE_RESPONSE = (
+    "Why did the computer science student at MDU keep wearing sunglasses in the lab? "
+    "Because their future in tech was too bright! (And they had too many bright screens open). "
+    "How can I assist you with your academic questions today?"
+)
+
+# ---------------------------------------------------------------------------
+# Multilingual Intent Regex Patterns
+# ---------------------------------------------------------------------------
+RE_COMBINED_GREETING_HOW_ARE_YOU = re.compile(
+    r"^(?:hi|hello|hey|heya|hlo|namaste|namastey|namaskar|pranam|greetings?)(?:[\s,!-]+|\s+)(?:there|assistant|ai|bot|ji|bhai|sir|mam)?[\s,!-]*"
+    r"(?:how\s+(?:are\s+you|are\s+u|r\s+u|is\s+it\s+going|do\s+you\s+do|are\s+things|u\s+doing)|"
+    r"kaise\s+(?:ho|hain)|kya\s+haal\s+(?:hai|h|chaal)|kya\s+chal\s+raha\s+(?:hai|h)|"
+    r"आप\s+कैसे\s+हैं|कैसे\s+हो|क्या\s+हाल\s+है)[\s!.,?]*$",
+    re.IGNORECASE
+)
+
 RE_GREETING = re.compile(
     r"^(?:"
     r"hi|hello|hey|heya|hlo|namaste|namastey|namaskar|namaskaar|pranam|pranaam|ram\s*ram|radhe\s*radhe|jai\s*shree\s*ram|"
@@ -160,7 +190,7 @@ RE_HELP = re.compile(
 
 RE_HOW_ARE_YOU = re.compile(
     r"^(?:"
-    r"how\s+(?:are\s+you|are\s+u|r\s+u)|how\'?s\s+it\s+going|how\s+do\s+you\s+do|"
+    r"how\s+(?:are\s+you|are\s+u|r\s+u|is\s+it\s+going|do\s+you\s+do|are\s+things|u\s+doing)|"
     # Hinglish patterns
     r"(?:aap|tum)?\s*(?:kaise|kese)\s+(?:ho|hain)|"
     r"kya\s+haal\s+(?:hai|chaal|h)|"
@@ -169,6 +199,11 @@ RE_HOW_ARE_YOU = re.compile(
     # Devanagari patterns
     r"आप\s+कैसे\s+हैं|कैसे\s+हो|क्या\s+हाल\s+है"
     r")[\s!.,?]*$",
+    re.IGNORECASE
+)
+
+RE_JOKE = re.compile(
+    r"^(?:tell\s+me\s+a\s+joke|say\s+a\s+joke|make\s+me\s+laugh|joke|koi\s+joke\s+sunao|joke\s+sunao)[\s!.,?]*$",
     re.IGNORECASE
 )
 
@@ -216,7 +251,7 @@ def get_conversational_response(question: str) -> Optional[str]:
     """
     Checks if the user's input is a pure conversational query (greeting, identity, date/time, gratitude, etc.).
     Returns a natural, friendly response as the MDU Rohtak University AI Assistant in the user's language (Hindi/Hinglish/English),
-    or None if the query contains domain-specific academic questions requiring RAG retrieval.
+    or None if the query contains questions requiring factual synthesis or RAG retrieval.
     """
     if not question:
         return MDU_GREETING_RESPONSE
@@ -224,7 +259,11 @@ def get_conversational_response(question: str) -> Optional[str]:
     cleaned = question.strip()
     is_hindi = is_hindi_or_hinglish(cleaned)
 
-    # 0. Current Date / Time Inquiry
+    # 0. Combined Greeting + How Are You (e.g. "hi how r u", "hello how are you", "namaste kaise ho")
+    if RE_COMBINED_GREETING_HOW_ARE_YOU.match(cleaned):
+        return MDU_GREETING_AND_HOW_ARE_YOU_HINDI if is_hindi else MDU_GREETING_AND_HOW_ARE_YOU
+
+    # 0.5. Current Date / Time Inquiry
     if RE_DATETIME.match(cleaned):
         from datetime import datetime
         now = datetime.now()
@@ -256,6 +295,10 @@ def get_conversational_response(question: str) -> Optional[str]:
     if RE_HOW_ARE_YOU.match(cleaned):
         return MDU_HOW_ARE_YOU_RESPONSE_HINDI if is_hindi else MDU_HOW_ARE_YOU_RESPONSE
 
+    # 4.5. Friendly Joke
+    if RE_JOKE.match(cleaned):
+        return MDU_JOKE_RESPONSE
+
     # 5. Gratitude (thank you, dhanyawad, shukriya, etc.)
     if RE_GRATITUDE.match(cleaned):
         return MDU_GRATITUDE_RESPONSE_HINDI if is_hindi else MDU_GRATITUDE_RESPONSE
@@ -265,3 +308,47 @@ def get_conversational_response(question: str) -> Optional[str]:
         return MDU_FAREWELL_RESPONSE_HINDI if is_hindi else MDU_FAREWELL_RESPONSE
 
     return None
+
+
+def is_mdu_institutional_query(text: str) -> bool:
+    """
+    Determines if a query is asking specifically for verified MDU institutional facts
+    (e.g., specific MDU datesheets, official notifications, faculty directories, executive minutes, fee structures).
+    Returns False for general knowledge, concept explanations, coding, math, general advice, or conversational chat.
+    """
+    if not text:
+        return False
+    lower = text.lower()
+
+    # 1. Direct MDU institutional names or abbreviations
+    mdu_terms = [
+        "mdu", "maharshi", "dayanand", "rohtak", "mdurohtak",
+        "ucc", "dde", "uiet", "dcsa", "cdoe", "utd", "imsar",
+        "samarth", "dms.mdu.ac.in", "mdu.ac.in",
+        "yudhvir", "milap punia", "sandeep bansal", "sachdeva",
+        "admit card", "roll no", "roll number", "datesheet", "date sheet",
+        "gazette", "re-appear", "ordinance", "academic council",
+        "executive council", "court meeting", "notification no",
+        "prospectus", "curfew", "hostel rules", "vice chancellor",
+        "vice-chancellor", "chancellor"
+    ]
+    if any(term in lower for term in mdu_terms):
+        return True
+
+    # 2. Check for specific MDU course/paper codes (e.g. CS401, 23GEOD102DS02)
+    has_code = bool(re.search(r"\b(?:[A-Za-z]{2,5}\s*[-_]?\s*\d{2,4}|\d{2}[A-Z]{3,6}\d{2,6}[A-Z0-9]*)\b", text))
+    if has_code:
+        return True
+
+    # 3. Check for specific administrative/exam inquiries
+    admin_terms = [
+        "datesheet", "examination center", "exam center", "roll number slip",
+        "re-evaluation", "rechecking", "migration certificate", "provisional degree",
+        "degree verification", "affidavit", "semester result", "annual exam result",
+        "cut-off", "cutoff", "admission portal"
+    ]
+    if any(term in lower for term in admin_terms):
+        return True
+
+    return False
+

@@ -18,10 +18,12 @@ export default function DiagnosticsTab() {
         adminApi.diagnostics.getPromptRules().catch(() => []),
       ]);
       setClinic(c);
-      setHistory(h?.items || h || []);
-      setRules(r?.rules || r || []);
+      setHistory(Array.isArray(h) ? h : (h?.history || h?.items || []));
+      setRules(Array.isArray(r) ? r : (r?.rules || []));
     } catch (err) {
       console.error('Failed to load diagnostics clinic:', err);
+      setHistory([]);
+      setRules([]);
     } finally {
       setLoading(false);
     }

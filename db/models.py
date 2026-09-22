@@ -356,3 +356,64 @@ class ContextTier(Base):
         Index("ix_context_dept_course", "department", "course"),
         Index("ix_context_tier_type", "tier_type"),
     )
+
+
+class ChatSession(Base):
+    """
+    Persistent conversation session metadata tracking user interactions,
+    feedback scores, and confidence flags for admin auditing and AI self-improvement.
+    """
+    __tablename__ = "chat_sessions"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    session_id = Column(String(128), unique=True, nullable=False, index=True)
+    title = Column(String(255), nullable=True)
+    user_identifier = Column(String(128), nullable=True, index=True)
+    role = Column(String(50), default="student", nullable=False)
+    department = Column(Text, nullable=True, index=True)
+    course = Column(Text, nullable=True, index=True)
+    message_count = Column(Integer, default=0, nullable=False)
+    feedback_score = Column(Integer, default=0, nullable=False)
+    has_negative_feedback = Column(Boolean, default=False, nullable=False, index=True)
+    has_low_confidence = Column(Boolean, default=False, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False, index=True)
+
+    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan", order_by="ChatMessage.created_at")
+
+    __table_args__ = (
+        Index("ix_chat_sessions_dept_time", "department", "created_at"),
+        Index("ix_chat_sessions_flags", "has_negative_feedback", "has_low_confidence"),
+    )
+
+
+class ChatMessage(Base):
+    """
+    Granular chat messages exchanged within a ChatSession.
+    Stores prompt questions, assistant answers, verified citations, confidence,
+    CRAG correctness decisions, and student satisfaction feedback.
+    """
+    __tablename__ = "chat_messages"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    session_id = Column(String(128), ForeignKey("chat_sessions.session_id", ondelete="CASCADE"), nullable=False, index=True)
+    sender = Column(String(30), nullable=False)  # 'user' or 'assistant'
+    content = Column(Text, nullable=False)
+    citations_json = Column(Text, nullable=True)  # JSON-encoded array of Citation dicts
+    confidence = Column(Float, nullable=True)
+    crag_decision = Column(String(50), nullable=True)  # CORRECT, INCORRECT, AMBIGUOUS
+    served_by = Column(String(50), nullable=True)  # local, hosted, cache, tiered_context_l1
+    latency_ms = Column(Float, nullable=True)
+    tokens_used = Column(Integer, default=0, nullable=False)
+    feedback = Column(String(20), nullable=True)  # 'up', 'down', or None
+    feedback_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    session = relationship("ChatSession", back_populates="messages")
+
+    __table_args__ = (
+        Index("ix_chat_messages_session_time", "session_id", "created_at"),
+        Index("ix_chat_messages_feedback", "feedback"),
+        Index("ix_chat_messages_confidence", "confidence"),
+    )
+

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { adminApi } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { Users, UserPlus, Shield, CheckCircle2, XCircle, Trash2, Power, RefreshCw, AlertCircle } from 'lucide-react';
+import { Users, UserPlus, Shield, CheckCircle2, XCircle, Trash2, Power, RefreshCw, AlertCircle, Pencil } from 'lucide-react';
 import CreateAdminModal from '../modals/CreateAdminModal';
+import EditAdminModal from '../modals/EditAdminModal';
 
 export default function AdminUsersTab() {
   const { user: currentUser } = useAuth();
@@ -10,6 +11,7 @@ export default function AdminUsersTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
 
   const fetchUsers = async () => {
@@ -17,9 +19,10 @@ export default function AdminUsersTab() {
     setError(null);
     try {
       const data = await adminApi.auth.getUsers();
-      setUsers(data);
+      setUsers(Array.isArray(data) ? data : (data?.users || []));
     } catch (err) {
       setError(err.message || 'Failed to fetch administrator accounts.');
+      setUsers([]);
     } finally {
       setLoading(false);
     }
@@ -233,6 +236,15 @@ export default function AdminUsersTab() {
                       <td className="py-3.5 px-6 text-right">
                         <div className="inline-flex items-center gap-1.5">
                           <button
+                            onClick={() => setEditingUser(u)}
+                            disabled={isProcessing}
+                            title="Edit administrator details"
+                            className="p-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-charcoal transition disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
                             onClick={() => handleToggleStatus(u)}
                             disabled={isCurrent || isProcessing}
                             title={u.is_active ? 'Deactivate account' : 'Activate account'}
@@ -268,6 +280,13 @@ export default function AdminUsersTab() {
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         onCreated={fetchUsers}
+      />
+
+      <EditAdminModal
+        isOpen={!!editingUser}
+        user={editingUser}
+        onClose={() => setEditingUser(null)}
+        onUpdated={fetchUsers}
       />
     </div>
   );

@@ -37,7 +37,8 @@ class DocumentDownloader:
     async def download_file(
         client: httpx.AsyncClient,
         url: str,
-        conditional_headers: Optional[dict] = None
+        conditional_headers: Optional[dict] = None,
+        allowed_domains: Optional[List[str]] = None
     ) -> Tuple[bool, int, Optional[str], Optional[str], dict]:
         """
         Streams document to disk.
@@ -57,8 +58,9 @@ class DocumentDownloader:
         try:
             async with client.stream("GET", url, headers=headers, follow_redirects=True, timeout=30.0) as resp:
                 resp_headers = dict(resp.headers)
-                # Re-validate final redirected URL against SSRF
-                is_safe_target, target_reason = UrlNormalizer.is_safe_url(str(resp.url))
+                # Re-validate final redirected URL against SSRF with allowed_domains
+                eff_allowed = allowed_domains if allowed_domains is not None else ["mdu.ac.in"]
+                is_safe_target, target_reason = UrlNormalizer.is_safe_url(str(resp.url), allowed_domains=eff_allowed)
                 if not is_safe_target:
                     logger.warning(f"Download redirect target {resp.url} failed SSRF check: {target_reason}")
                     return False, 400, None, None, resp_headers

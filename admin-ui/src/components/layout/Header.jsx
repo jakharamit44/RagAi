@@ -67,11 +67,15 @@ export default function Header() {
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
                   <span className="font-mono text-charcoal text-[11px] font-medium">
-                    VM: {sourceTelemetry.source_host}
+                    VM: {sourceTelemetry.source_host || sourceTelemetry.host || sourceTelemetry.vector_store_host || '192.168.81.150'}
                   </span>
                   <span className="text-muted text-[11px]">&bull;</span>
                   <span className="text-muted text-[11px]">
-                    {sourceTelemetry.total_rows?.toLocaleString()} rows
+                    {(sourceTelemetry.total_rows || sourceTelemetry.total_db_rows || 0).toLocaleString()} rows
+                  </span>
+                  <span className="text-muted text-[11px]">&bull;</span>
+                  <span className="text-muted text-[11px]">
+                    {(sourceTelemetry.qdrant_points_count || sourceTelemetry.total_vectors || 0).toLocaleString()} vectors
                   </span>
                 </div>
               )}

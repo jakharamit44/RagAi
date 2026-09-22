@@ -38,6 +38,10 @@
         <select id="course-select" class="text-xs bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
           <option value="" selected>All Courses / Documents</option>
         </select>
+        <button type="button" onclick="startNewChat()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-2.5 py-1.5 rounded-lg border border-slate-300 transition flex items-center space-x-1 shadow-xs">
+          <i class="fa-solid fa-plus text-[10px]"></i>
+          <span>New Chat</span>
+        </button>
         <a href="/admin" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold px-2 py-1">Admin Dashboard</a>
       </div>
     </div>
@@ -90,6 +94,51 @@
     const deptSelect = document.getElementById('dept-select');
     const courseSelect = document.getElementById('course-select');
     const btnSend = document.getElementById('btn-send');
+
+    let currentSessionId = localStorage.getItem('ragai_chat_session_id');
+    if (!currentSessionId) {
+      currentSessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+      localStorage.setItem('ragai_chat_session_id', currentSessionId);
+    }
+
+    function startNewChat() {
+      currentSessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+      localStorage.setItem('ragai_chat_session_id', currentSessionId);
+      messagesContainer.innerHTML = `
+        <div class="flex items-start space-x-3">
+          <div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shrink-0">AI</div>
+          <div class="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200 max-w-2xl">
+            <p class="text-sm text-slate-800 leading-relaxed">
+              Hello! Started a fresh conversation session. Ask me anything about your course lectures, syllabus, lab assignments, or policies. Every answer is grounded directly in verified material.
+            </p>
+          </div>
+        </div>
+      `;
+      userInput.focus();
+    }
+
+    async function sendFeedback(btn, rating) {
+      const container = btn.closest('.feedback-container');
+      try {
+        const res = await fetch('/api/v1/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query_id: currentSessionId, feedback: rating })
+        });
+        if (res.ok) {
+          container.querySelectorAll('button').forEach(b => {
+            b.disabled = true;
+            b.classList.add('opacity-40', 'pointer-events-none');
+          });
+          btn.classList.remove('opacity-40');
+          btn.classList.add(rating === 'up' ? 'text-emerald-600' : 'text-rose-600');
+          const msg = container.querySelector('.feedback-msg');
+          if (msg) msg.classList.remove('hidden');
+        }
+      } catch (err) {
+        console.warn('Feedback submission failed:', err);
+      }
+    }
 
     async function loadScopes() {
       try {
@@ -221,7 +270,9 @@
       let cardsHtml = '';
 
       // 1. Interactive Timetable & Examination Schedule Card
-      const hasDatesheetIntent = (lower.includes('exam') || lower.includes('datesheet') || lower.includes('mathematics') || lower.includes('schedule')) && (lower.includes('202') || lower.includes('semester') || lower.includes('held') || lower.includes('june'));
+      // Only render if text actually contains an examination timetable table or explicit datesheet schedule
+      const hasTablePipes = (text.match(/\|.*\|.*\|/g) || []).length >= 2;
+      const hasDatesheetIntent = (lower.includes('datesheet') || lower.includes('date sheet') || lower.includes('exam schedule') || lower.includes('examination schedule') || lower.includes('timetable') || lower.includes('time table')) && (hasTablePipes || lower.includes('paper code') || lower.includes('exam timing') || lower.includes('morning shift') || lower.includes('evening shift'));
       if (hasDatesheetIntent) {
         cardsHtml += `
           <div class="my-3 p-3.5 bg-gradient-to-br from-indigo-50 via-white to-purple-50 rounded-xl border border-indigo-200 shadow-sm text-xs">
@@ -242,7 +293,7 @@
       }
 
       // 2. Official University Admissions Status Card
-      const hasAdmissionIntent = lower.includes('admission') || lower.includes('prospectus') || lower.includes('eligibility') || lower.includes('application form');
+      const hasAdmissionIntent = (lower.includes('admission') || lower.includes('prospectus') || lower.includes('eligibility criteria') || lower.includes('application form')) && (lower.includes('mdu') || lower.includes('apply') || lower.includes('portal') || lower.includes('deadline') || lower.includes('registration'));
       if (hasAdmissionIntent) {
         cardsHtml += `
           <div class="my-3 p-3.5 bg-gradient-to-br from-emerald-50 via-white to-teal-50 rounded-xl border border-emerald-200 shadow-sm text-xs">
@@ -262,7 +313,7 @@
                  class="inline-flex items-center px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition shadow-sm">
                 <i class="fa-solid fa-arrow-up-right-from-square mr-1.5 text-[10px]"></i> Open MDU Official Portal
               </a>
-              <a href="https://mdu.ac.in/Admissions" target="_blank" rel="noopener noreferrer"
+              <a href="https://admission.mdu.ac.in" target="_blank" rel="noopener noreferrer"
                  class="inline-flex items-center px-3 py-1.5 rounded-lg bg-white hover:bg-emerald-50 text-emerald-800 font-semibold text-xs border border-emerald-300 transition">
                 <i class="fa-solid fa-book-open mr-1.5 text-[10px]"></i> Online Registration
               </a>
@@ -315,7 +366,9 @@
         const cardsHtml = renderGenerativeUICards(text);
         const badgeHtml = servedBy === 'cache'
           ? `<span class="inline-flex items-center text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full mt-2">⚡ Cached Hit (< 1ms)</span>`
-          : `<span class="inline-flex items-center text-[10px] bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded-full mt-2">🖥️ Local Inference (RTX 3060)</span>`;
+          : (servedBy === 'general_ai'
+              ? `<span class="inline-flex items-center text-[10px] bg-purple-100 text-purple-800 font-semibold px-2 py-0.5 rounded-full mt-2">🧠 AI Academic Assistant (RTX 3060)</span>`
+              : `<span class="inline-flex items-center text-[10px] bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded-full mt-2">🖥️ Local Inference (RTX 3060)</span>`);
 
         const formattedHtml = formatContent(text);
 
@@ -330,6 +383,16 @@
               ${badgeHtml}
             </div>
             ${citationsHtml}
+            <div class="feedback-container flex items-center space-x-2 text-slate-400 text-xs mt-3 pt-2.5 border-t border-slate-100">
+              <span class="text-[11px] text-slate-500 font-medium">Was this helpful?</span>
+              <button type="button" onclick="sendFeedback(this, 'up')" title="Helpful" class="hover:text-emerald-600 transition px-1.5 py-0.5 rounded hover:bg-emerald-50 text-slate-500">
+                <i class="fa-regular fa-thumbs-up text-xs"></i>
+              </button>
+              <button type="button" onclick="sendFeedback(this, 'down')" title="Not helpful" class="hover:text-rose-600 transition px-1.5 py-0.5 rounded hover:bg-rose-50 text-slate-500">
+                <i class="fa-regular fa-thumbs-down text-xs"></i>
+              </button>
+              <span class="feedback-msg text-[10px] text-emerald-600 font-semibold hidden ml-2">✓ Thank you for your feedback!</span>
+            </div>
           </div>
         `;
       }
@@ -382,7 +445,7 @@
         const res = await fetch('/api/v1/ask', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question, course, department, stream: true })
+          body: JSON.stringify({ question, course, department, session_id: currentSessionId, stream: true })
         });
 
         if (!res.ok) {
@@ -447,9 +510,12 @@
                 const eventData = JSON.parse(line.slice(6));
                 if (eventData.type === 'metadata') {
                   const isCache = eventData.served_by === 'cache';
+                  const isGeneralAi = eventData.served_by === 'general_ai';
                   badgeElem.innerHTML = isCache
                     ? `<span class="inline-flex items-center text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full mt-2">⚡ Cached Hit (< 1ms)</span>`
-                    : `<span class="inline-flex items-center text-[10px] bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded-full mt-2">🖥️ Local Inference</span>`;
+                    : (isGeneralAi
+                        ? `<span class="inline-flex items-center text-[10px] bg-purple-100 text-purple-800 font-semibold px-2 py-0.5 rounded-full mt-2">🧠 AI Academic Assistant (RTX 3060)</span>`
+                        : `<span class="inline-flex items-center text-[10px] bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded-full mt-2">🖥️ Local Inference (RTX 3060)</span>`);
                 } else if (eventData.type === 'citations') {
                   citations = eventData.citations || [];
                   citationsElem.innerHTML = renderCitations(citations);
@@ -463,6 +529,22 @@
                     const cardsBox = document.createElement('div');
                     cardsBox.innerHTML = cardsHtml;
                     textElem.before(cardsBox);
+                  }
+                  const cardDiv = msgDiv.querySelector('.bg-white');
+                  if (cardDiv && !cardDiv.querySelector('.feedback-container')) {
+                    const fbDiv = document.createElement('div');
+                    fbDiv.className = 'feedback-container flex items-center space-x-2 text-slate-400 text-xs mt-3 pt-2.5 border-t border-slate-100';
+                    fbDiv.innerHTML = `
+                      <span class="text-[11px] text-slate-500 font-medium">Was this helpful?</span>
+                      <button type="button" onclick="sendFeedback(this, 'up')" title="Helpful" class="hover:text-emerald-600 transition px-1.5 py-0.5 rounded hover:bg-emerald-50 text-slate-500">
+                        <i class="fa-regular fa-thumbs-up text-xs"></i>
+                      </button>
+                      <button type="button" onclick="sendFeedback(this, 'down')" title="Not helpful" class="hover:text-rose-600 transition px-1.5 py-0.5 rounded hover:bg-rose-50 text-slate-500">
+                        <i class="fa-regular fa-thumbs-down text-xs"></i>
+                      </button>
+                      <span class="feedback-msg text-[10px] text-emerald-600 font-semibold hidden ml-2">✓ Thank you for your feedback!</span>
+                    `;
+                    cardDiv.appendChild(fbDiv);
                   }
                   if (window.renderMathInElement) {
                     try {

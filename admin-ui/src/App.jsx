@@ -5,6 +5,7 @@ import Header from './components/layout/Header';
 import Navigation from './components/layout/Navigation';
 
 import BrainTab from './components/tabs/BrainTab';
+import ConversationsTab from './components/tabs/ConversationsTab';
 import IngestTab from './components/tabs/IngestTab';
 import PipelineTab from './components/tabs/PipelineTab';
 import FailedTab from './components/tabs/FailedTab';
@@ -46,6 +47,8 @@ export default function App() {
     switch (activeTab) {
       case 'brain':
         return <BrainTab />;
+      case 'conversations':
+        return <ConversationsTab />;
       case 'ingest':
         return <IngestTab />;
       case 'pipeline':

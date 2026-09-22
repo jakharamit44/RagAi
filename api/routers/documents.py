@@ -50,6 +50,7 @@ class TaskStatusResponse(BaseModel):
 class DocumentItem(BaseModel):
     id: str
     title: str
+    source_path: Optional[str] = None
     department: Optional[str]
     semester: Optional[str]
     course: Optional[str]
@@ -71,7 +72,9 @@ class ManifestItem(BaseModel):
     content_hash: str
     status: str
     mtime: float
-    error: Optional[str]
+    error: Optional[str] = None
+    file_size_bytes: Optional[int] = None
+    updated_at: Optional[str] = None
 
 class PaginatedManifestResponse(BaseModel):
     items: List[ManifestItem]
@@ -80,11 +83,14 @@ class PaginatedManifestResponse(BaseModel):
     page_size: int
     total_pages: int
 
+@router.get("/api/v1/admin/documents", response_model=Union[PaginatedDocumentResponse, List[DocumentItem]])
 @router.get("/api/v1/documents", response_model=Union[PaginatedDocumentResponse, List[DocumentItem]])
+@router.get("/documents", response_model=Union[PaginatedDocumentResponse, List[DocumentItem]])
 async def list_documents(
     page: Optional[int] = Query(None, ge=1, description="Page number for server-side pagination"),
     page_size: Optional[int] = Query(None, ge=1, le=200, description="Items per page"),
     search: Optional[str] = Query(None, description="Search keyword in title, dept, or course"),
+    query: Optional[str] = Query(None, description="Alias for search query keyword"),
     department: Optional[str] = Query(None, description="Filter by department"),
     course: Optional[str] = Query(None, description="Filter by course"),
     doc_type: Optional[str] = Query(None, description="Filter by doc_type (born_digital, scanned)"),
@@ -96,11 +102,12 @@ async def list_documents(
     Supports high-speed server-side pagination, instant search, and filtering
     scalable to 100,000+ (lakh) documents without memory or DOM crashes.
     """
+    search_term = search or query
     async with async_session_factory() as session:
         filters = []
-        if search and search.strip():
-            s = f"%{search.strip()}%"
-            filters.append(or_(Document.title.ilike(s), Document.department.ilike(s), Document.course.ilike(s)))
+        if search_term and search_term.strip():
+            s = f"%{search_term.strip()}%"
+            filters.append(or_(Document.title.ilike(s), Document.department.ilike(s), Document.course.ilike(s), Document.source_path.ilike(s)))
         if department and department.strip() and department.lower() != "all":
             filters.append(Document.department.ilike(f"%{department.strip()}%"))
         if course and course.strip() and course.lower() != "all":
@@ -143,6 +150,7 @@ async def list_documents(
                 DocumentItem(
                     id=str(doc.id),
                     title=doc.title,
+                    source_path=doc.source_path,
                     department=doc.department,
                     semester=doc.semester,
                     course=doc.course,
@@ -167,6 +175,7 @@ async def list_documents(
                 DocumentItem(
                     id=str(doc.id),
                     title=doc.title,
+                    source_path=doc.source_path,
                     department=doc.department,
                     semester=doc.semester,
                     course=doc.course,
@@ -178,6 +187,48 @@ async def list_documents(
                 for doc, count in results
             ]
 
+class ChunkItem(BaseModel):
+    id: str
+    chunk_index: int
+    page_number: Optional[int] = None
+    section: str = ""
+    character_count: Optional[int] = 0
+    token_count: Optional[int] = 0
+    text: str
+    created_at: str = ""
+
+@router.get("/api/v1/documents/{document_id}/chunks", response_model=List[ChunkItem])
+@router.get("/api/v1/admin/documents/{document_id}/chunks", response_model=List[ChunkItem])
+@router.get("/documents/{document_id}/chunks", response_model=List[ChunkItem])
+async def get_document_chunks(
+    document_id: str,
+    current_user: User = Depends(require_role("faculty"))
+):
+    """Retrieve all parsed and indexed chunks for a document."""
+    async with async_session_factory() as session:
+        stmt = (
+            select(Chunk)
+            .where(Chunk.document_id == document_id)
+            .order_by(Chunk.page_number.asc(), Chunk.id.asc())
+        )
+        res = await session.execute(stmt)
+        chunks = res.scalars().all()
+        return [
+            ChunkItem(
+                id=str(c.id),
+                chunk_index=idx + 1,
+                page_number=c.page_number,
+                section=c.section or "",
+                character_count=len(c.text or ""),
+                token_count=len((c.text or "").split()),
+                text=c.text or "",
+                created_at="",
+            )
+            for idx, c in enumerate(chunks)
+        ]
+
+@router.get("/api/v1/admin/manifest", response_model=Union[PaginatedManifestResponse, List[ManifestItem]])
+@router.get("/admin/manifest", response_model=Union[PaginatedManifestResponse, List[ManifestItem]])
 @router.get("/api/v1/manifest", response_model=Union[PaginatedManifestResponse, List[ManifestItem]])
 async def list_manifest(
     page: Optional[int] = Query(None, ge=1, description="Page number for pagination"),
@@ -207,21 +258,29 @@ async def list_manifest(
             stmt = stmt.where(and_(*filters))
         stmt = stmt.order_by(ManifestEntry.updated_at.desc())
 
+        def build_manifest_item(e: ManifestEntry) -> ManifestItem:
+            sz = None
+            try:
+                if e.path and os.path.exists(e.path):
+                    sz = os.path.getsize(e.path)
+            except Exception:
+                pass
+            return ManifestItem(
+                id=str(e.id),
+                path=e.path,
+                content_hash=e.content_hash,
+                status=e.status,
+                mtime=e.mtime,
+                error=e.error,
+                file_size_bytes=sz,
+                updated_at=e.updated_at.isoformat() if getattr(e, 'updated_at', None) else None
+            )
+
         if page is not None:
             ps = page_size or 25
             stmt = stmt.offset((page - 1) * ps).limit(ps)
             entries = (await session.execute(stmt)).scalars().all()
-            items = [
-                ManifestItem(
-                    id=str(e.id),
-                    path=e.path,
-                    content_hash=e.content_hash,
-                    status=e.status,
-                    mtime=e.mtime,
-                    error=e.error
-                )
-                for e in entries
-            ]
+            items = [build_manifest_item(e) for e in entries]
             total_pages = max(1, (total + ps - 1) // ps)
             return PaginatedManifestResponse(
                 items=items,
@@ -232,17 +291,54 @@ async def list_manifest(
             )
         else:
             entries = (await session.execute(stmt)).scalars().all()
-            return [
-                ManifestItem(
-                    id=str(e.id),
-                    path=e.path,
-                    content_hash=e.content_hash,
-                    status=e.status,
-                    mtime=e.mtime,
-                    error=e.error
-                )
-                for e in entries
-            ]
+            return [build_manifest_item(e) for e in entries]
+
+@router.post("/api/v1/admin/manifest/verify")
+@router.post("/admin/manifest/verify")
+@router.post("/api/v1/manifest/verify")
+async def verify_manifest_integrity():
+    """
+    Cryptographically verifies SHA-256 integrity of all manifest records against filesystem.
+    """
+    import hashlib
+    async with async_session_factory() as session:
+        entries = (await session.execute(select(ManifestEntry))).scalars().all()
+        total = len(entries)
+        verified_ok = 0
+        changed = 0
+        missing = 0
+
+        for e in entries:
+            if not os.path.exists(e.path):
+                missing += 1
+                e.status = "missing"
+            else:
+                try:
+                    hasher = hashlib.sha256()
+                    with open(e.path, "rb") as f:
+                        while chunk := f.read(65536):
+                            hasher.update(chunk)
+                    curr_hash = hasher.hexdigest()
+                    if curr_hash == e.content_hash:
+                        verified_ok += 1
+                        e.status = "indexed"
+                    else:
+                        changed += 1
+                        e.status = "changed"
+                except Exception:
+                    missing += 1
+                    e.status = "failed"
+        await session.commit()
+
+        return {
+            "status": "success",
+            "message": f"Cryptographic integrity audit complete: {verified_ok} verified intact, {changed} changed, {missing} missing/error across {total} records.",
+            "total": total,
+            "verified": verified_ok,
+            "changed": changed,
+            "missing": missing
+        }
+
 
 @router.get("/api/v1/documents/tasks/{task_id}", response_model=TaskStatusResponse)
 async def get_task_status(task_id: str):

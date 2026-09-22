@@ -50,7 +50,7 @@ async def _run_pipeline_async(file_path: str, department: Optional[str], course:
 
         if rows:
             texts = [c.text for c, _ in rows]
-            vectors = embedder.embed_texts(texts)
+            vectors = await asyncio.to_thread(embedder.embed_texts, texts)
 
             points_to_upsert = []
             bm25_items = []
@@ -66,7 +66,7 @@ async def _run_pipeline_async(file_path: str, department: Optional[str], course:
                     "course": doc.course,
                     "page_number": chunk.page_number,
                     "section": chunk.section,
-                    "text": chunk.text,
+                    "text": chunk.text[:350],
                     "content_hash": chunk.content_hash,
                 }
                 points_to_upsert.append({
@@ -79,12 +79,11 @@ async def _run_pipeline_async(file_path: str, department: Optional[str], course:
 
             await session.commit()
 
-            # 3. Upsert into Qdrant
-            qdrant_store.upsert_chunks(points_to_upsert)
+            # 3. Upsert into Qdrant in worker thread
+            await asyncio.to_thread(qdrant_store.upsert_chunks, points_to_upsert)
 
-            # 4. Sync in-memory BM25 index
-            bm25_index.corpus.extend(bm25_items)
-            bm25_index.build_index(bm25_index.corpus)
+            # 4. Sync in-memory BM25 index safely without blocking server
+            bm25_index.add_chunks(bm25_items)
 
         return {
             "status": "success",

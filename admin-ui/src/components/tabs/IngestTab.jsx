@@ -18,7 +18,7 @@ export default function IngestTab() {
     setLoading(true);
     try {
       const data = await adminApi.ingest.getFolders();
-      setFolders(data || []);
+      setFolders(Array.isArray(data) ? data : (data?.folders || []));
     } catch (err) {
       console.error('Failed to load watched folders:', err);
     } finally {

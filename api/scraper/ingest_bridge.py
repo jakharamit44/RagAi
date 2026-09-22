@@ -10,6 +10,7 @@ from api.rag.embedder import embedder
 from api.rag.qdrant_store import qdrant_store
 from api.rag.bm25_index import bm25_index
 from workers.ingest_tasks import _run_pipeline_async
+from db.session import async_session_factory
 from .storage_cleaner import StorageCleaner
 
 logger = logging.getLogger(__name__)
@@ -23,10 +24,11 @@ class ScraperIngestBridge:
     async def ingest_document_file(
         local_file_path: str,
         manifest_entry: WebScrapeManifest,
-        session: AsyncSession
+        session: Optional[AsyncSession] = None
     ) -> Dict[str, Any]:
         """
         Ingests a downloaded PDF/DOCX using the core document ingestion pipeline.
+        Manifest status is updated in a short-lived transaction after processing.
         """
         try:
             res = await _run_pipeline_async(
@@ -36,29 +38,38 @@ class ScraperIngestBridge:
                 semester="All"
             )
 
-            if res.get("status") == "success":
-                manifest_entry.document_id = res.get("document_id")
-                manifest_entry.status = "ingested"
-                manifest_entry.local_file_path = None
-                await session.commit()
-                logger.info(f"Successfully indexed document {local_file_path} into vector store.")
-                StorageCleaner.cleanup_file(local_file_path)
-            elif res.get("status") == "skipped":
-                manifest_entry.status = "skipped_unchanged"
-                await session.commit()
-                StorageCleaner.cleanup_file(local_file_path)
-            else:
-                manifest_entry.status = "failed"
-                manifest_entry.error_message = str(res.get("message") or "Pipeline processing failed")
-                await session.commit()
-                StorageCleaner.cleanup_file(local_file_path)
+            async with async_session_factory() as update_session:
+                m_entry = None
+                if manifest_entry and manifest_entry.id:
+                    m_entry = await update_session.get(WebScrapeManifest, manifest_entry.id)
 
+                if m_entry:
+                    if res.get("status") == "success":
+                        m_entry.document_id = res.get("document_id")
+                        m_entry.status = "ingested"
+                        m_entry.local_file_path = None
+                        logger.info(f"Successfully indexed document {local_file_path} into vector store.")
+                    elif res.get("status") == "skipped":
+                        m_entry.status = "skipped_unchanged"
+                    else:
+                        m_entry.status = "failed"
+                        m_entry.error_message = str(res.get("message") or "Pipeline processing failed")
+                    await update_session.commit()
+
+            StorageCleaner.cleanup_file(local_file_path)
             return res
         except Exception as e:
             logger.error(f"Error ingesting file {local_file_path}: {e}")
-            manifest_entry.status = "failed"
-            manifest_entry.error_message = str(e)
-            await session.commit()
+            try:
+                async with async_session_factory() as err_session:
+                    if manifest_entry and manifest_entry.id:
+                        m_entry = await err_session.get(WebScrapeManifest, manifest_entry.id)
+                        if m_entry:
+                            m_entry.status = "failed"
+                            m_entry.error_message = str(e)
+                            await err_session.commit()
+            except Exception:
+                pass
             StorageCleaner.cleanup_file(local_file_path)
             return {"status": "error", "message": str(e)}
 
@@ -167,7 +178,7 @@ class ScraperIngestBridge:
 
             # Upsert into Qdrant (offloaded to thread to avoid blocking loop)
             await asyncio.to_thread(qdrant_store.upsert_chunks, points_to_upsert)
-            bm25_index.corpus.extend(bm25_items)
+            bm25_index.add_chunks(bm25_items)
 
             logger.info(f"Ingested web page: {clean_title} ({len(chunk_models)} chunks)")
 
